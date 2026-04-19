@@ -72,7 +72,7 @@ Katalóg všetkých file-ov v `vnc-urcap/` s rolou, aktuálnym stavom, a "prečo
 | `dist/stimba-vnc-server-3.0.2.urcap` | DataModel primitive-typed overloads (pulled, 106 006 B) | `14b9f4e75620a0ca80a173d620759784abbfb1ce5b2a88e169aa5b3f6d81cac1` | 2026-04-19 |
 | `dist/stimba-vnc-server-3.0.3.urcap` | `isDefined()` → `true` fix (106 134 B) | `1b558b9d905eae06ed89fe316ee9b788021d602ba248023a2428addfca761b2e` | 2026-04-19 |
 | `dist/stimba-vnc-server-3.0.4.urcap` | MANIFEST description bump (bytecode-identický s 3.0.3, 106 336 B) — last prod build pred API bump | `8828fbe6fe076d72929f4b30be948b3043012aeba4007a6c6aa2f053afba4fdb` | 2026-04-19 |
-| `dist/stimba-vnc-server-3.1.0.urcap` | **Next target** — URCap API 1.16.0 bump (Task #19), pending first build | (pending) | 2026-04-19 22:00 |
+| `dist/stimba-vnc-server-3.1.0.urcap` | URCap API 1.16.0 bump (Task #19) — Import-Package guard `[1.16.0,2.0.0)` verified in MANIFEST, bytecode target 1.8, CI regress.yml PASS (72 sigs match baseline). Sandbox ref build: 89 552 B (JDK 11). Official Mac/Docker build SHA differs due to `Bnd-LastModified` timestamp. | `8453c3a8a611c41f765652b4c378fcae07e6e6838f9e88508587d623efb3e88f` (sandbox ref build, JDK 11) | 2026-04-19 22:48 |
 
 ## Wiki (toto)
 
