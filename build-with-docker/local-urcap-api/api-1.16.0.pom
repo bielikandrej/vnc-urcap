@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Minimal POM for Universal Robots URCap API 1.16.0.
+
+    Source:    URCap SDK 1.18, artifacts/api/1.16.0/com.ur.urcap.api-1.16.0.jar
+    Built:     2024-11-19 (Bnd-LastModified: 1732005135977)
+    Copyright: Universal Robots A/S — redistributed under SDK terms, for URCap
+               development only. See sibling README.md for licensing notes.
+
+    Target Polyscope range (e-Series):
+      - Minimum:  PolyScope 5.16.x  (API 1.16 requires 5.16 runtime bundle)
+      - Maximum:  PolyScope 5.25.x  (latest e-Series as of 2026-04)
+    STIMBA fleet floor = 5.20 → 4 minor versions of headroom.
+
+    Why 1.16 vs 1.3.0 (previous):
+      PolyScope 5.16 introduced the updated TLS/x509 security stack
+      (stricter cert chain validation, TLS 1.2 minimum). Compiling against
+      1.16 headers aligns our bundle with that security contract and opens
+      the door to post-5.16 API helpers (if ever needed) without forcing
+      another property bump.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.ur.urcap</groupId>
+    <artifactId>api</artifactId>
+    <version>1.16.0</version>
+    <packaging>jar</packaging>
+
+    <name>Universal Robots URCap API</name>
+    <description>URCap API 1.16.0 (UR SDK 1.18 extract). Consumed via OSGi Import-Package at runtime; not embedded in the .urcap bundle.</description>
+    <url>https://www.universal-robots.com/download/software-e-series/</url>
+
+    <organization>
+        <name>Universal Robots A/S</name>
+        <url>https://www.universal-robots.com</url>
+    </organization>
+</project>

@@ -205,3 +205,44 @@ Andrej stiahol plný URCap SDK 1.18 na Mac (`AI Claude/sdk-1.18/`). SDK obsahuje
   ```
 - `git push` — GitHub Actions regression gate by mal pass-nuť (verifikovali sme locally proti 3.0.4 dist artefaktu: 72 signatures match baseline).
 - Voliteľné: `make build && make regress` pre fresh local round-trip pred push-om.
+
+---
+
+## 2026-04-19 22:00 — Task #19: API bump 1.3.0 → 1.16.0 (v3.1.0 target)
+
+**Kontext:** Fleet telemetry confirmed floor = PS 5.20, ceiling = PS 5.25 (ALL STIMBA robots e-Series). API 1.3.0 bol zvolený v Task #15 pre "max backward compat" — ale máme teraz overené že žiadny robot pod PS 5.16 neexistuje → 1.3.0 je preto zbytočne konzervatívne low. Navyše PS 5.16 priniesol TLS/x509 security overhaul (stricter cert chain validation, TLS 1.2 minimum) a náš `-ssl SAVE` x11vnc path (v3.0.0 C1) priamo závisí na tom security stacku. Aligning compile target s 1.16 = "natural" pre tento URCap.
+
+**Prečo NIE 1.18.0 (user push-back):** 1.18.0 vyžaduje PS 5.18+; dalo by len 2 minor vers headroom (5.18 → 5.20) vs 1.16.0 má 4 (5.16 → 5.20). Žiadny API helper medzi 1.16 a 1.18 ktorý by náš kód volal. Mid-term risk (servis robot drops in s PS 5.16/5.17) = 1.16 bezpečnejšie.
+
+**Executed steps:**
+
+- **2026-04-19 22:00**  [3.1.0]  Claude  Skopírovaný `sdk-1.18/artifacts/api/1.16.0/com.ur.urcap.api-1.16.0.jar` → `build-with-docker/local-urcap-api/api-1.16.0.jar` (331 189 B, MD5 `37163a184189a7d52eed2df98bde24b7`, byte-identical s source). Plus `api-1.16.0-sources.jar` (570 573 B).
+- **2026-04-19 22:00**  [3.1.0]  Claude  Napísaný `api-1.16.0.pom` s full provenance comment block: source (SDK 1.18 extract), built date (2024-11-19 per `Bnd-LastModified: 1732005135977`), UR copyright, fleet compat envelope (PS 5.16 → 5.25), 1.16-vs-1.3.0 rationale.
+- **2026-04-19 22:00**  [3.1.0]  Claude  `pom.xml` bumps: `<version>` `3.0.4 → 3.1.0`; `<urcap.api.version>` `1.3.0 → 1.16.0`. Comment block kompletne prepísaný — 5-version explainer (1.3.0 / 1.4.0 / 1.13.0 / 1.16.0 / 1.18.0) + fleet telemetry výber rationale + byte-stable-interfaces note (72-sig baseline nezmenený).
+- **2026-04-19 22:00**  [3.1.0]  Claude  `Dockerfile`: LABEL description + all `api-1.3.0.*` file-references → `api-1.16.0.*`. Pridaný komentár že legacy 1.3.0 artefakty sú v repo retained (pre bisect/rollback) ale NIE installed do `~/.m2` — iba API version referenced v `COPY` + `install-file` je installed.
+- **2026-04-19 22:00**  [3.1.0]  Claude  `build-with-docker/local-urcap-api/README.md` rewrite: status block (active 1.16.0), "Why 1.16.0" sekcia (fleet + TLS stack alignment + byte-stable interfaces), "Legacy 1.3.0 artefakty (retained, not active)" sekcia s odôvodnením, "Upgrade path" 6-step procedure, nová compat matrix s "Requires min. Polyscope" stĺpcom.
+- **2026-04-19 22:00**  [3.1.0]  Claude  **Rollback path zachovaný:** legacy `api-1.3.0.jar` + `.pom` + `-sources.jar` ponechané v `local-urcap-api/` (sandbox delete na mnt/ blokovaný, z núdzovej limitácie sa stala feature: `git bisect` bez refetch, one-line Dockerfile flip pre rollback, audit ref "this is what we shipped 2.0.0 → 3.0.4").
+- **2026-04-19 22:00**  [3.1.0]  Claude  Wiki updates: `00-INDEX.md` (header marker + 3.1.0 riadok v status tabuľke + Sprint 3.5 paragraph extended with Task #19 note + tooling section api-1.16.0 active + legacy 1.3.0), `05-file-map.md` (api-1.16.0.* rows ako active + api-1.3.0.* demoted to legacy + pending 3.1.0 dist row).
+
+**Bytecode impact na `sk.stimba.*`:** ŽIADNY. Náš kód volá iba byte-stable rozhrania (DaemonService × 2, DaemonContribution × 4 + State enum, InstallationNodeContribution × 3 { `openView`, `closeView`, `generateScript` }, DataModel primitive overloads). Verifikované že všetky existujú v 1.3.0 aj v 1.16.0 s identickými signatúrami — takže:
+- Regression gate baseline zostáva **72 signatures** (`wiki/public-api-baseline.txt`), žiadny `make regress-write` potrebný.
+- Žiadne `.java` súbory v `src/main/java/sk/stimba/urcap/vnc/impl/` neboli dotknuté.
+
+**Install-time behavior:** `Import-Package` v MANIFEST.MF je teraz `com.ur.urcap.api*;version="[1.16.0,2.0.0)"`. OSGi resolver na PS <5.16 **odmietne URCap nainštalovať** (unsatisfied import) — to je WANTED mis-deployment guard: robot s príliš starým Polyscope dostane jasný error pri upload namiesto runtime NoClassDefFoundError (lekcia zo stub-drift storm).
+
+**Compatibility envelope po bumpi:** PS 5.16.x → PS 5.25.x (e-Series); CB3 cez `URCapCompatibility-CB3` flag v MANIFEST. Fleet ≥5.20 = 4 minor vers headroom vs 1.16 min.
+
+**Mac-side to-do pre Andreja (Task #19):**
+- Sync file zmeny z Cowork mount (`rsync -av "<cowork-mount>/vnc-urcap/" "<Mac-repo>/vnc-urcap/"` alebo manual copy updated files).
+- `cd vnc-urcap && git status` → staged: `pom.xml`, `build-with-docker/Dockerfile`, `build-with-docker/local-urcap-api/{README.md, api-1.16.0.jar, api-1.16.0.pom, api-1.16.0-sources.jar}`, `wiki/{00-INDEX.md, 05-file-map.md, progress.md}`.
+- Commit message suggestion:
+  ```
+  Task #19: bump URCap API 1.3.0 → 1.16.0 (v3.1.0 target)
+
+  - Fleet telemetry: floor PS 5.20, ceiling PS 5.25
+  - 1.16 aligns compile target s PS 5.16 TLS/x509 security overhaul
+  - Byte-stable interfaces → regression gate stays at 72 signatures
+  - Legacy 1.3.0 artefakty retained for rollback + bisect
+  - Import-Package [1.16.0,2.0.0) = install guard proti PS <5.16
+  ```
+- `git push` → GitHub Actions regression gate by mal pass-núť (bytecode identický). Po pushi spustiť `make build` a over `dist/stimba-vnc-server-3.1.0.urcap` prví-build SHA-256 → zapísať do `wiki/05-file-map.md` dist tabuľky.

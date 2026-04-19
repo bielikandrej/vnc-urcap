@@ -6,17 +6,20 @@ Katalóg všetkých file-ov v `vnc-urcap/` s rolou, aktuálnym stavom, a "prečo
 
 | File | Rola | Naposledy menený | Dôvod |
 |---|---|---|---|
-| `pom.xml` | Maven bundle config, version source of truth | 2026-04-19 | Bump na 3.0.4 (posledný hotfix 3.5) |
+| `pom.xml` | Maven bundle config, version source of truth | 2026-04-19 22:00 | **v3.1.0** — URCap API bump `1.3.0 → 1.16.0` (Task #19); aligns compile target s PS 5.16 TLS/x509 security overhaul, fleet ≥5.20 = 4 minor vers headroom |
 | `README.md` | Operátorský návod (install + override config) | 2026-04-17 | Per-robot IXROUTER_IP override flow dokumentovaný |
 | `Makefile` | Developer shortcuts (build / regress / regress-write / clean) | 2026-04-19 | NEW (Task #18) — default `make` = build + regression gate |
 | `.gitignore` | Vynechať `target/`, IDE noise, tmp/regress artefakty + explicit `!local-urcap-api/*` allow | 2026-04-19 | NEW (Task #15) — vytvorený spolu s embedom |
-| `build-with-docker/Dockerfile` | maven:3.9.6-eclipse-temurin-8 + `install:install-file` zo `local-urcap-api/` | 2026-04-16 | initial |
+| `build-with-docker/Dockerfile` | maven:3.9.6-eclipse-temurin-8 + `install:install-file` zo `local-urcap-api/` | 2026-04-19 22:00 | UPDATED (Task #19) — inštaluje api-1.16.0.* (api-1.3.0.* retained ale NIE installed) |
 | `build-with-docker/regress.sh` | Bash wrapper ktorý unpackne `.urcap` a spustí signature diff | 2026-04-19 | NEW (Task #18) |
 | `build-with-docker/regress_signatures.py` | Self-contained Python JVM class-file parser (no JDK) | 2026-04-19 | NEW (Task #18) |
-| `build-with-docker/local-urcap-api/api-1.3.0.jar` | **Real URCap API 1.3.0 JAR** z URCap SDK 1.18, 168 KB, Universal Robots A/S | 2026-04-19 | NEW (Task #15) — uzatvára Sprint 3.5 stub-drift lineage |
-| `build-with-docker/local-urcap-api/api-1.3.0.pom` | Minimálny POM pre `mvn install:install-file -DpomFile=…` | 2026-04-19 | NEW (Task #15) |
-| `build-with-docker/local-urcap-api/api-1.3.0-sources.jar` | API sources (developer reference; nie súčasť Dockerfile flow) | 2026-04-19 | NEW (Task #15) |
-| `build-with-docker/local-urcap-api/README.md` | Status + licenčná nota; sekcia "kde JAR originálne vzniká" ako fallback | 2026-04-19 | UPDATED (Task #15) — status embedded |
+| `build-with-docker/local-urcap-api/api-1.16.0.jar` | **Real URCap API 1.16.0 JAR** z URCap SDK 1.18, 331 KB, Universal Robots A/S (built 2024-11-19). **Active** — Dockerfile inštaluje tento. | 2026-04-19 22:00 | NEW (Task #19) — API bump, zaručuje PS 5.16+ compatibility |
+| `build-with-docker/local-urcap-api/api-1.16.0.pom` | Minimálny POM pre `mvn install:install-file -DpomFile=…` (s provenance comment block) | 2026-04-19 22:00 | NEW (Task #19) |
+| `build-with-docker/local-urcap-api/api-1.16.0-sources.jar` | API 1.16.0 sources (IDE reference; nie súčasť Dockerfile flow) | 2026-04-19 22:00 | NEW (Task #19) |
+| `build-with-docker/local-urcap-api/api-1.3.0.jar` | **Legacy URCap API 1.3.0 JAR** — retained ako rollback path a `git bisect` reference (NIE installed do `~/.m2` by Dockerfile) | 2026-04-19 | Task #15 → Task #19 (demoted to legacy) |
+| `build-with-docker/local-urcap-api/api-1.3.0.pom` | Legacy POM (ref only) | 2026-04-19 | demoted to legacy |
+| `build-with-docker/local-urcap-api/api-1.3.0-sources.jar` | Legacy sources (ref only) | 2026-04-19 | demoted to legacy |
+| `build-with-docker/local-urcap-api/README.md` | Status + licenčná nota; "Why 1.16.0" + "Legacy 1.3.0 retained" + "Upgrade path" sekcie + compat matrix | 2026-04-19 22:00 | REWRITE (Task #19) — reflektuje 1.16.0 ako active |
 | `.github/workflows/regress.yml` | CI gate — fail build pri public-API signature drift | 2026-04-19 | NEW (Task #18) — blokuje Sprint 3.5 typu hotfix saga |
 | `local-repo/com/ur/urcap/api/1.3.0/` | **Deprecated path.** pom.xml má `<repository id="local-urcap">` ktorý sem míri, ale reálny canonical install flow ide cez Dockerfile + local-urcap-api/. Gitignored. | — | legacy fallback |
 
@@ -68,7 +71,8 @@ Katalóg všetkých file-ov v `vnc-urcap/` s rolou, aktuálnym stavom, a "prečo
 | `dist/stimba-vnc-server-3.0.1.urcap` | DataModel.get() null-safe cast pattern (pulled, 106 093 B) | `46eee7ca110b59c1b50472e69cae6a3aff69b64d73917a8a01d74bc536cb0843` | 2026-04-19 |
 | `dist/stimba-vnc-server-3.0.2.urcap` | DataModel primitive-typed overloads (pulled, 106 006 B) | `14b9f4e75620a0ca80a173d620759784abbfb1ce5b2a88e169aa5b3f6d81cac1` | 2026-04-19 |
 | `dist/stimba-vnc-server-3.0.3.urcap` | `isDefined()` → `true` fix (106 134 B) | `1b558b9d905eae06ed89fe316ee9b788021d602ba248023a2428addfca761b2e` | 2026-04-19 |
-| `dist/stimba-vnc-server-3.0.4.urcap` | MANIFEST description bump, current prod (106 336 B, bytecode-identický s 3.0.3) | `8828fbe6fe076d72929f4b30be948b3043012aeba4007a6c6aa2f053afba4fdb` | 2026-04-19 |
+| `dist/stimba-vnc-server-3.0.4.urcap` | MANIFEST description bump (bytecode-identický s 3.0.3, 106 336 B) — last prod build pred API bump | `8828fbe6fe076d72929f4b30be948b3043012aeba4007a6c6aa2f053afba4fdb` | 2026-04-19 |
+| `dist/stimba-vnc-server-3.1.0.urcap` | **Next target** — URCap API 1.16.0 bump (Task #19), pending first build | (pending) | 2026-04-19 22:00 |
 
 ## Wiki (toto)
 
