@@ -1,0 +1,49 @@
+# STIMBA VNC Server URCap — .gitignore
+# =====================================
+
+# --- Maven build output ---
+target/
+
+# --- IDE / editor ---
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+nbproject/
+.project
+.classpath
+.settings/
+
+# --- macOS / Windows noise ---
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- Local-only Maven repo shim (legacy; we use build-with-docker flow) ---
+local-repo/
+
+# --- Scratch / regression tmp output ---
+/tmp/
+urcap-regress-*/
+*.tmp
+*.bak
+*.swp
+
+# --- Logs ---
+*.log
+
+# --- Node (not used here, but kept for safety if tooling appears) ---
+node_modules/
+
+# --- Docker scratch ---
+.docker-build/
+
+# ----------------------------------------------------------------------
+# EXPLICITLY KEEP — do NOT auto-ignore these via generic patterns above.
+# ----------------------------------------------------------------------
+!build-with-docker/local-urcap-api/api-1.3.0.jar
+!build-with-docker/local-urcap-api/api-1.3.0.pom
+!build-with-docker/local-urcap-api/api-1.3.0-sources.jar
+!build-with-docker/local-urcap-api/README.md

@@ -1,0 +1,61 @@
+name: URCap API regression
+
+# Runs on every push/PR touching the URCap sources or tooling.
+# Catches the pattern behind the 3.0.0 → 3.0.4 hotfix storm:
+# hand-rolled API stub drift that Polyscope surfaces as
+# NoSuchMethodError / AbstractMethodError.
+
+on:
+  push:
+    paths:
+      - "src/**"
+      - "build-with-docker/**"
+      - "wiki/public-api-baseline.txt"
+      - ".github/workflows/regress.yml"
+      - "pom.xml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "build-with-docker/**"
+      - "wiki/public-api-baseline.txt"
+      - "pom.xml"
+
+jobs:
+  regress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build .urcap
+        run: |
+          docker build -t stimba-urcap-builder ./build-with-docker
+          docker run --rm -v "$PWD":/ws -w /ws stimba-urcap-builder mvn -B -q package
+
+      - name: Run public-API regression gate
+        run: ./build-with-docker/regress.sh
+
+      - name: Upload .urcap on success
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: urcap
+          path: target/*.urcap
+          retention-days: 30
+
+      - name: Explain failure (job summary)
+        if: failure()
+        run: |
+          {
+            echo "## URCap API regression failed"
+            echo ""
+            echo "A public method under \`sk.stimba.*\` disappeared or changed signature."
+            echo "This is almost always the pattern behind the 3.0.0→3.0.4 Polyscope"
+            echo "\`AbstractMethodError\` hotfix storm."
+            echo ""
+            echo "If the change was intentional:"
+            echo "  1. \`make regress-write\` — regenerates \`wiki/public-api-baseline.txt\`"
+            echo "  2. Commit the updated baseline in the same PR"
+            echo "  3. Re-run CI"
+            echo ""
+            echo "Otherwise, revert the signature change before merging."
+          } >> "$GITHUB_STEP_SUMMARY"

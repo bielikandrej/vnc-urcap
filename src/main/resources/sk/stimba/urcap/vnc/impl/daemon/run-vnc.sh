@@ -1,0 +1,359 @@
+#!/bin/bash
+#
+# STIMBA VNC Server daemon (URCap 3.0.0)
+# Started/stopped by Polyscope URCap daemon lifecycle
+#
+# What this does
+# --------------
+# 1. Self-bootstraps /var/lib/urcap-vnc/ (chown root:polyscope, chmod 770)
+#    so the polyscope-user UI can write its config atomically.
+# 2. Reads config in priority order:
+#      a) /var/lib/urcap-vnc/config       (UI-owned, v2.1.0+)
+#      b) /root/.urcap-vnc.conf           (legacy, v2.0.1–2.0.2)
+#    See ADR-003 (legacy bridge) and ADR-004 (UI bridge) in wiki/adr/.
+# 3. easybot tripwire: refuses start if root still uses factory "easybot"
+#    and URCAP_VNC_REQUIRE_STRONG_PWD=1. See ADR-005.
+# 4. Ensures x11vnc installed (apt-get first-boot).
+# 5. Writes/refreshes VNC password (first 8 chars count — RFB truncation, G2).
+# 6. iptables whitelist: ACCEPT IXROUTER_IP, ACCEPT 127.0.0.1, DROP rest
+#    on tcp/VNC_PORT (kernel-level RBAC, see ADR-002).
+# 7. v3.0.0 (C1): if TLS_ENABLED, invokes tls-bootstrap.sh and passes
+#    `-ssl SAVE` to x11vnc so the wire is AES-encrypted end-to-end.
+# 8. v3.0.0 (C4): passes `-connect_or_exit N` when MAX_CLIENTS=1 (the
+#    default), or `-connect N` for 2-5; enforces UI max clients count.
+# 9. v3.0.0 (C2): if IDLE_TIMEOUT_MIN>0, spawns idle-watcher.sh in the
+#    background to kick idle clients after N minutes of no pointer motion.
+#10. exec x11vnc attached to Polyscope DISPLAY :0 on 0.0.0.0:VNC_PORT.
+#
+# Why x11vnc (not TigerVNC/x0vncserver)
+# -------------------------------------
+# Polyscope owns DISPLAY :0 via Xorg. We MUST attach to that existing display,
+# not spin up a new Xvnc. x11vnc is the canonical tool for this exact pattern.
+#
+# Security model
+# --------------
+# x11vnc binds 0.0.0.0 BUT iptables source-IP whitelist restricts port
+# to IXROUTER_IP + 127.0.0.1 only. Defence in depth = iptables + VNC
+# password + IXON Cloud 2FA on the portal side.
+#
+# Config keys (v3.0.0)
+#   VNC_PORT                     = 5900
+#   VNC_PASSWORD                 = (first 8 chars matter — RFB spec)
+#   VNC_VIEW_ONLY                = false
+#   IXROUTER_IP                  = 192.168.0.100 (STIMBA fleet default)
+#   CUSTOMER_LABEL               = "" (appears in LOG_TAG + audit log)
+#   URCAP_VNC_REQUIRE_STRONG_PWD = 1 (refuse start on default easybot root pw)
+#   TLS_ENABLED                  = 1 (v3.0.0 — C1, wire-level SSL via x11vnc)
+#   IDLE_TIMEOUT_MIN             = 30 (v3.0.0 — C2, 0 = disabled)
+#   MAX_CLIENTS                  = 1 (v3.0.0 — C4, 1..5)
+#
+# Exit codes
+# ----------
+#   0    - daemon started cleanly (exec into x11vnc)
+#  10    - apt-get install failed (no network?)
+#  11    - /tmp/urcap-vnc.lock exists (already running)
+#  12    - DISPLAY :0 not reachable
+#  13    - iptables command not available or whitelist setup failed
+#  14    - root password is still 'easybot' and URCAP_VNC_REQUIRE_STRONG_PWD=1
+#  15    - bootstrap failure (cannot chown/chmod /var/lib/urcap-vnc)
+#  16    - TLS enabled but tls-bootstrap.sh failed (v3.0.0)
+#
+set -eu
+
+LOCK_FILE="/tmp/urcap-vnc.lock"
+VNC_PASSWORD_FILE="/root/.vnc/passwd"
+
+# --- 0a. Self-bootstrap /var/lib/urcap-vnc/ (UI-owned config dir) -----------
+# Daemon runs as root, so it can create the dir and fix permissions such that
+# the polyscope user (UI) can drop config files atomically. See ADR-004.
+URCAP_STATE_DIR="/var/lib/urcap-vnc"
+if [ ! -d "${URCAP_STATE_DIR}" ]; then
+    mkdir -p "${URCAP_STATE_DIR}" || exit 15
+fi
+# Fix ownership/perms idempotently — chown will silently succeed if already correct.
+# Target group 'polyscope' exists on UR e-Series (uid 1000 family).
+if getent group polyscope >/dev/null 2>&1; then
+    chown root:polyscope "${URCAP_STATE_DIR}" 2>/dev/null || true
+    chmod 2770 "${URCAP_STATE_DIR}" 2>/dev/null || true  # 2=setgid so new files inherit group
+else
+    # UR polyscope group naming varies — degrade to world-writable with sticky bit
+    chmod 1777 "${URCAP_STATE_DIR}" 2>/dev/null || true
+fi
+mkdir -p "${URCAP_STATE_DIR}/sessions" 2>/dev/null || true
+
+# --- 0b. Source config — v2.1.0 first, legacy fallback ----------------------
+CONFIG_FILE_NEW="/var/lib/urcap-vnc/config"
+CONFIG_FILE_LEGACY="/root/.urcap-vnc.conf"
+CONFIG_SOURCED="none"
+if [ -r "${CONFIG_FILE_NEW}" ]; then
+    # shellcheck disable=SC1090
+    . "${CONFIG_FILE_NEW}"
+    CONFIG_SOURCED="${CONFIG_FILE_NEW}"
+elif [ -r "${CONFIG_FILE_LEGACY}" ]; then
+    # shellcheck disable=SC1090
+    . "${CONFIG_FILE_LEGACY}"
+    CONFIG_SOURCED="${CONFIG_FILE_LEGACY}"
+fi
+
+# --- Defaults (compiled-in) -------------------------------------------------
+VNC_PORT="${VNC_PORT:-5900}"
+VNC_PASSWORD="${VNC_PASSWORD:-ixon}"
+VNC_VIEW_ONLY="${VNC_VIEW_ONLY:-false}"
+# Verified Apr 2026 across the STIMBA fleet: most installs use 192.168.0.100.
+IXROUTER_IP="${IXROUTER_IP:-192.168.0.100}"
+CUSTOMER_LABEL="${CUSTOMER_LABEL:-}"
+URCAP_VNC_REQUIRE_STRONG_PWD="${URCAP_VNC_REQUIRE_STRONG_PWD:-1}"
+# v3.0.0 Sprint 3 knobs
+TLS_ENABLED="${TLS_ENABLED:-1}"
+IDLE_TIMEOUT_MIN="${IDLE_TIMEOUT_MIN:-30}"
+MAX_CLIENTS="${MAX_CLIENTS:-1}"
+DISPLAY="${DISPLAY:-:0}"
+export DISPLAY
+
+# Normalise truthy/numeric values early so downstream checks can rely on them
+case "${TLS_ENABLED}" in
+    1|true|TRUE|yes|on)  TLS_ENABLED=1 ;;
+    *)                   TLS_ENABLED=0 ;;
+esac
+[[ "${IDLE_TIMEOUT_MIN}" =~ ^[0-9]+$ ]] || IDLE_TIMEOUT_MIN=0
+[[ "${MAX_CLIENTS}" =~ ^[1-9][0-9]*$ ]] || MAX_CLIENTS=1
+[ "${MAX_CLIENTS}" -gt 5 ] && MAX_CLIENTS=5
+
+# LOG_TAG carries customer label for fleet-wide grep on journalctl
+if [ -n "${CUSTOMER_LABEL}" ]; then
+    LOG_TAG="urcap-vnc[${CUSTOMER_LABEL}]"
+else
+    LOG_TAG="urcap-vnc"
+fi
+
+log() { logger -t "${LOG_TAG}" "$*"; echo "[${LOG_TAG}] $*"; }
+
+log "v3.0.0 starting — config source: ${CONFIG_SOURCED}"
+log "IXROUTER_IP=${IXROUTER_IP} VNC_PORT=${VNC_PORT} VIEW_ONLY=${VNC_VIEW_ONLY} STRONG_PWD=${URCAP_VNC_REQUIRE_STRONG_PWD}"
+log "TLS_ENABLED=${TLS_ENABLED} IDLE_TIMEOUT_MIN=${IDLE_TIMEOUT_MIN} MAX_CLIENTS=${MAX_CLIENTS}"
+
+#
+# 0c. Default-password tripwire (see ADR-005)
+#
+# UR ships Polyscope 5.x with Admin password "easybot" which is ALSO the
+# Debian root password. We refuse start if unchanged and strong-pwd toggle
+# is on; operator sees red banner in UI + non-zero exit in daemon status.
+#
+if [ "${URCAP_VNC_REQUIRE_STRONG_PWD}" = "1" ] || [ "${URCAP_VNC_REQUIRE_STRONG_PWD}" = "true" ]; then
+    if [ -r /etc/shadow ]; then
+        ROOT_HASH_LINE="$(awk -F: '$1=="root"{print $2}' /etc/shadow 2>/dev/null || echo '')"
+        if [ -n "${ROOT_HASH_LINE}" ]; then
+            SALT="$(printf '%s' "${ROOT_HASH_LINE}" | awk -F'$' '{print "$"$2"$"$3"$"}')"
+            if [ -n "${SALT}" ] && [ "${SALT}" != '$$$' ]; then
+                EASYBOT_HASH="$(python3 -c "import crypt; print(crypt.crypt('easybot','${SALT}'))" 2>/dev/null || echo '')"
+                if [ -n "${EASYBOT_HASH}" ] && [ "${EASYBOT_HASH}" = "${ROOT_HASH_LINE}" ]; then
+                    log "##########################################################"
+                    log "# REFUSAL: root password is factory default 'easybot'."
+                    log "# Polyscope admin = Linux root — change via:"
+                    log "#   ssh root@<robot> 'passwd root'"
+                    log "# Or disable tripwire in Installation → VNC Server (NOT recommended)."
+                    log "##########################################################"
+                    exit 14
+                fi
+            fi
+        fi
+    fi
+fi
+
+#
+# 0d. Prevent double-start
+#
+if [ -e "${LOCK_FILE}" ]; then
+    EXISTING_PID="$(cat "${LOCK_FILE}" 2>/dev/null || echo '')"
+    if [ -n "${EXISTING_PID}" ] && kill -0 "${EXISTING_PID}" 2>/dev/null; then
+        log "already running as PID ${EXISTING_PID}; exiting"
+        exit 11
+    else
+        log "stale lock file; removing"
+        rm -f "${LOCK_FILE}"
+    fi
+fi
+
+echo "$$" > "${LOCK_FILE}"
+trap 'rm -f "${LOCK_FILE}"' EXIT
+
+#
+# 1. Install x11vnc if not present (robot must be online on first start)
+#
+if ! command -v x11vnc >/dev/null 2>&1; then
+    log "x11vnc not found; attempting apt-get install (robot must have internet)"
+    export DEBIAN_FRONTEND=noninteractive
+    if apt-get update -qq && apt-get install -y -qq x11vnc; then
+        log "x11vnc installed successfully"
+    else
+        log "ERROR: apt-get install x11vnc failed. Robot offline? Check IXrouter uplink."
+        log "Fallback: manually install .deb: dpkg -i /root/x11vnc*.deb"
+        exit 10
+    fi
+fi
+
+X11VNC_BIN="$(command -v x11vnc)"
+X11VNC_VERSION="$(${X11VNC_BIN} -version 2>&1 | head -1 || echo 'unknown')"
+log "using ${X11VNC_BIN} (${X11VNC_VERSION})"
+
+#
+# 2. Write / refresh VNC password (first 8 chars count — RFB truncation, G2)
+#
+mkdir -p "$(dirname "${VNC_PASSWORD_FILE}")"
+if [ ! -s "${VNC_PASSWORD_FILE}" ] || [ "${VNC_PASSWORD_REFRESH:-false}" = "true" ]; then
+    log "writing VNC password file (${VNC_PASSWORD_FILE})"
+    # G7 fix: pipe via stdin, not positional arg, to avoid TTY dependency on Polyscope
+    printf '%s' "${VNC_PASSWORD}" | "${X11VNC_BIN}" -storepasswd - "${VNC_PASSWORD_FILE}" >/dev/null 2>&1 \
+        || "${X11VNC_BIN}" -storepasswd "${VNC_PASSWORD}" "${VNC_PASSWORD_FILE}"
+    chmod 600 "${VNC_PASSWORD_FILE}"
+fi
+
+#
+# 3. Probe DISPLAY :0
+#
+if ! DISPLAY="${DISPLAY}" xdpyinfo >/dev/null 2>&1; then
+    log "WARNING: xdpyinfo could not probe DISPLAY=${DISPLAY}; continuing anyway"
+    log "(x11vnc will retry via -auth guess and -findauth)"
+fi
+
+#
+# 4. iptables whitelist — allow IXROUTER_IP, drop everyone else on VNC_PORT
+#
+if command -v iptables >/dev/null 2>&1; then
+    log "installing iptables whitelist: ACCEPT ${IXROUTER_IP} -> tcp/${VNC_PORT}, DROP others"
+
+    # ACCEPT from IXrouter (idempotent via -C check)
+    if ! iptables -C INPUT -p tcp --dport "${VNC_PORT}" -s "${IXROUTER_IP}" -j ACCEPT 2>/dev/null; then
+        if ! iptables -I INPUT 1 -p tcp --dport "${VNC_PORT}" -s "${IXROUTER_IP}" -j ACCEPT; then
+            log "ERROR: iptables INSERT ACCEPT failed (EUID=$(id -u)?)"
+            exit 13
+        fi
+    fi
+
+    # Always accept loopback (local vncviewer diagnostics)
+    if ! iptables -C INPUT -p tcp --dport "${VNC_PORT}" -s 127.0.0.1 -j ACCEPT 2>/dev/null; then
+        iptables -I INPUT 1 -p tcp --dport "${VNC_PORT}" -s 127.0.0.1 -j ACCEPT || true
+    fi
+
+    # DROP everything else
+    if ! iptables -C INPUT -p tcp --dport "${VNC_PORT}" -j DROP 2>/dev/null; then
+        if ! iptables -A INPUT -p tcp --dport "${VNC_PORT}" -j DROP; then
+            log "WARNING: iptables APPEND DROP failed; port ${VNC_PORT} may be open to LAN"
+        fi
+    fi
+else
+    log "WARNING: iptables not found; skipping whitelist. Port ${VNC_PORT} is wide-open on LAN!"
+fi
+
+#
+# 4b. TLS bootstrap (v3.0.0 C1 — see ADR-008)
+#
+# x11vnc's `-ssl SAVE` loads (or lazily generates) /root/.vnc/certs/server.pem.
+# We want deterministic generation + fingerprint publication, so we run
+# tls-bootstrap.sh ourselves instead of letting x11vnc auto-gen silently.
+# Fingerprint file is exposed to the UI so the operator can pin it in
+# their VNC viewer's trust store before first connect.
+#
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TLS_BOOTSTRAP="${SCRIPT_DIR}/tls-bootstrap.sh"
+TLS_CERT="/root/.vnc/certs/server.pem"
+
+if [ "${TLS_ENABLED}" = "1" ]; then
+    if [ -x "${TLS_BOOTSTRAP}" ]; then
+        if ! "${TLS_BOOTSTRAP}"; then
+            log "ERROR: tls-bootstrap.sh failed — refusing to start (TLS was requested)"
+            exit 16
+        fi
+    else
+        log "WARN: TLS_ENABLED=1 but ${TLS_BOOTSTRAP} not executable; falling through to plaintext"
+        TLS_ENABLED=0
+    fi
+fi
+
+#
+# 5. Build x11vnc arguments
+#
+# v2.2.0: -accept / -gone fire audit hook per client connect/disconnect.
+# x11vnc exports RFB_CLIENT_IP / RFB_CLIENT_COUNT / RFB_CONNECT_SEC into
+# the hook's environment; vnc-audit-hook.sh writes one JSON-line per event
+# into /var/log/urcap-vnc-audit.log.  See ADR-007.
+#
+# v3.0.0 adds: -ssl, -connect_or_exit/-connect (max clients), plus an
+# idle-watcher that invokes `x11vnc -R disconnect all` when the pointer
+# has been stationary for IDLE_TIMEOUT_MIN minutes.
+#
+AUDIT_HOOK="${SCRIPT_DIR}/vnc-audit-hook.sh"
+IDLE_WATCHER="${SCRIPT_DIR}/idle-watcher.sh"
+
+ARGS=(
+    "-display"   "${DISPLAY}"
+    "-auth"      "guess"
+    "-rfbauth"   "${VNC_PASSWORD_FILE}"
+    "-rfbport"   "${VNC_PORT}"
+    "-forever"
+    "-noxdamage"
+    "-nopw"
+    "-logappend" "/var/log/urcap-vnc.log"
+    "-tag"       "urcap-vnc"
+)
+
+# --- Max clients (C4) -------------------------------------------------------
+# -connect_or_exit N  -> keep at most N clients, refuse the (N+1)th
+# -connect N          -> same but without -exit semantics
+# MAX_CLIENTS==1 is the secure default (single-session admin access).
+# x11vnc's `-nevershared` alone would refuse more than one but offers no
+# way to bump the cap, so we always pass -connect.
+if [ "${MAX_CLIENTS}" -eq 1 ]; then
+    ARGS+=( "-nevershared" "-connect_or_exit" "1" )
+else
+    ARGS+=( "-shared" "-connect" "${MAX_CLIENTS}" )
+fi
+log "max-clients policy: ${MAX_CLIENTS} (mode=$([ "${MAX_CLIENTS}" -eq 1 ] && echo single || echo shared))"
+
+# --- TLS (C1) --------------------------------------------------------------
+if [ "${TLS_ENABLED}" = "1" ] && [ -s "${TLS_CERT}" ]; then
+    ARGS+=( "-ssl" "${TLS_CERT}" )
+    log "TLS enabled; cert=${TLS_CERT}"
+else
+    log "TLS disabled — wire is plaintext (OK for LAN + IXON tunnel, NOT for public)"
+fi
+
+# Audit hooks — only wire up if script exists + is executable.  Missing
+# hook must not break x11vnc start, so we degrade gracefully.
+if [ -x "${AUDIT_HOOK}" ]; then
+    ARGS+=(
+        "-accept" "${AUDIT_HOOK} connect"
+        "-gone"   "${AUDIT_HOOK} disconnect"
+    )
+    log "audit hooks wired: ${AUDIT_HOOK}"
+else
+    log "WARN: audit hook missing at ${AUDIT_HOOK}; connect/disconnect events will not be logged"
+fi
+
+if [ "${VNC_VIEW_ONLY}" = "true" ]; then
+    ARGS+=("-viewonly")
+fi
+
+log "starting: ${X11VNC_BIN} ${ARGS[*]}"
+
+#
+# 6. Fork idle-watcher sibling (v3.0.0 C2) — it will self-terminate when
+#    x11vnc dies.  We grab the x11vnc PID *after* exec via a tiny shim:
+#    exec replaces us, so we use "exec" style only when no watcher is needed;
+#    otherwise we run x11vnc in the foreground and relay signals.
+#
+if [ "${IDLE_TIMEOUT_MIN}" -gt 0 ] && [ -x "${IDLE_WATCHER}" ]; then
+    "${X11VNC_BIN}" "${ARGS[@]}" &
+    X11VNC_PID=$!
+    log "started x11vnc pid=${X11VNC_PID}; spawning idle-watcher (${IDLE_TIMEOUT_MIN}min)"
+    "${IDLE_WATCHER}" "${IDLE_TIMEOUT_MIN}" "${X11VNC_PID}" "${DISPLAY}" &
+    WATCHER_PID=$!
+    trap 'kill ${WATCHER_PID} 2>/dev/null; kill ${X11VNC_PID} 2>/dev/null; rm -f "${LOCK_FILE}"' EXIT INT TERM
+    wait "${X11VNC_PID}"
+    RC=$?
+    kill "${WATCHER_PID}" 2>/dev/null || true
+    exit "${RC}"
+else
+    # No watcher → exec replacement so Polyscope daemon supervision tracks the real PID
+    exec "${X11VNC_BIN}" "${ARGS[@]}"
+fi
