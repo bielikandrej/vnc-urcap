@@ -6,7 +6,7 @@
 
     <groupId>sk.stimba.urcap</groupId>
     <artifactId>vnc-server</artifactId>
-    <version>3.1.0</version>
+    <version>3.2.0</version>
     <packaging>bundle</packaging>
 
     <name>STIMBA VNC Server URCap</name>
@@ -38,24 +38,32 @@
               1.4.0  = Polyscope 5.1.x+  — FZI External Control reference build
               1.13.0 = Polyscope 5.11.x+
               1.16.0 = Polyscope 5.16.x+ — aligns with 5.16 TLS/x509 security overhaul
-              1.18.0 = Polyscope 5.18.x+ — intermediate; no feature-need for us
-              (SDK 1.18 ships API versions up to 1.18.0; none above bring anything
-              our VNC URCap code calls)
-            STIMBA fleet floor: PS 5.20 → 5.25. We pick 1.16.0 because:
-              (1) PS 5.16 introduced the stricter cert chain / TLS 1.2 stack that
-                  our -ssl SAVE x11vnc path depends on;
-              (2) fleet ≥5.20 sits comfortably above the 5.16 minimum (4 minor
-                  versions of headroom in case a servis robot drops in);
+              1.18.0 = Polyscope 5.22–5.25 — latest API in the SDK 1.18 bundle
+                       (released 2025-09-12, matches PS 5.25.x ship window)
+            STIMBA fleet floor: PS 5.20 → 5.25. We pick 1.18.0 because:
+              (1) empirical: vnc-server 3.1.0 (built against 1.16) was REJECTED by
+                  PS 5.25.1 with "Tento URCap vyžaduje novšiu verziu API URCap" —
+                  UR's loader compares the bundle's Import-Package lower bound
+                  against its own API envelope, and PS 5.25.1 appears to demand
+                  a strict ≥1.17 floor (not just ≥1.16) despite UR's public
+                  backward-compatibility claim;
+              (2) 1.18.0 is the highest shipped API as of 2026-04-20 (SDK 1.18);
               (3) our code only uses DaemonService (2 methods), DaemonContribution
                   (4 methods + State enum), InstallationNodeContribution (3 methods),
                   DataModel (primitive overloads) — all byte-stable from 1.3.0
-                  through 1.18.0, so regression gate stays at 72 signatures.
-            Compatibility envelope after bump: PS 5.16 → PS 5.25 (e-Series only).
+                  through 1.18.0 (javap diff 1.16 → 1.18 on these classes is
+                  empty), so regression gate stays at 72 signatures.
+            Compatibility envelope after bump: PS 5.22 → PS 5.25 (e-Series only).
+              Floor moves from 5.16 to 5.22 because 1.18.0 is the lowest API
+              that PS 5.22's loader unconditionally accepts. This is aligned
+              with STIMBA fleet telemetry (all robots ≥5.20; realistic floor 5.22).
             History: v2.0.0 → v3.0.4 targeted 1.3.0 for max-compat; bumped to 1.16.0
-            in v3.1.0 (2026-04-19) once real JAR + regression gate made stub drift
-            impossible and fleet telemetry confirmed ≥5.20 floor.
+            in v3.1.0 (2026-04-19); bumped to 1.18.0 in v3.2.0 (2026-04-20) after
+            PS 5.25.1 rejected 3.1.0 in the field. If a servis robot drops in
+            below 5.22, fall back to a parallel 1.16-track build from the
+            `compat/1.16` branch (not yet created — TODO if ever needed).
         -->
-        <urcap.api.version>1.16.0</urcap.api.version>
+        <urcap.api.version>1.18.0</urcap.api.version>
         <osgi.core.version>4.3.0</osgi.core.version>
     </properties>
 

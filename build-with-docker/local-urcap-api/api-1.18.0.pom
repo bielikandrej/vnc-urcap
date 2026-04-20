@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Minimal POM for Universal Robots URCap API 1.18.0.
+
+    Source:    URCap SDK 1.18, artifacts/api/1.18.0/com.ur.urcap.api-1.18.0.jar
+    Built:     2025-09-12 (SDK 1.18 release — "Last modified on Sep 12, 2025")
+    Copyright: Universal Robots A/S — redistributed under SDK terms, for URCap
+               development only. See sibling README.md for licensing notes.
+
+    Target Polyscope range (e-Series):
+      - Minimum:  PolyScope 5.18.x  (API 1.18 ships with SDK 1.18; runtime bundle
+                  exported by PS 5.18+)
+      - Maximum:  PolyScope 5.25.x  (latest e-Series as of 2026-04 — STIMBA
+                  test robot is on 5.25.1)
+
+    Why 1.18 vs 1.16 (previous):
+      PolyScope 5.25.1 rejected vnc-server 3.1.0 (built against API 1.16) with
+      "Tento URCap vyžaduje novšiu verziu API URCap. Skúste aktualizovať na
+      najnovšiu verziu PolyScope." — despite PS being backward-compatible on
+      paper. Bumping to the latest shipped API (1.18) closes the matching
+      envelope UR's loader actually checks.
+
+    Byte-stable surface vs 1.16 for STIMBA dependencies:
+      - DaemonService (2 methods)
+      - DaemonContribution (4 methods + State enum)
+      - InstallationNodeContribution (3 methods)
+      - DataModel (primitive overloads)
+      New classes added in 1.18 (OptiMove*, Percentage, IncompatibleMotion-
+      Parameters) are in program.nodes.builtin.* — unused by our VNC URCap.
+      Regression gate stays at 72 signatures; no baseline churn.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.ur.urcap</groupId>
+    <artifactId>api</artifactId>
+    <version>1.18.0</version>
+    <packaging>jar</packaging>
+
+    <name>Universal Robots URCap API</name>
+    <description>URCap API 1.18.0 (UR SDK 1.18 extract). Consumed via OSGi Import-Package at runtime; not embedded in the .urcap bundle.</description>
+    <url>https://www.universal-robots.com/download/software-e-series/</url>
+
+    <organization>
+        <name>Universal Robots A/S</name>
+        <url>https://www.universal-robots.com</url>
+    </organization>
+</project>
