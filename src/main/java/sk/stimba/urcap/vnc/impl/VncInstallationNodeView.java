@@ -203,7 +203,10 @@ public class VncInstallationNodeView
                 if (keyboardFactory == null) return;
                 KeyboardTextInput kb = keyboardFactory.createStringKeyboardInput();
                 kb.setInitialValue(field.getText() == null ? "" : field.getText());
-                kb.show(e, new KeyboardInputCallback<String>() {
+                // KeyboardTextInput.show() takes the SOURCE COMPONENT (JTextField/
+                // JLabel/JButton), NOT the MouseEvent. The component is used to
+                // position the virtual keyboard relative to the tapped widget.
+                kb.show(field, new KeyboardInputCallback<String>() {
                     @Override
                     public void onOk(String value) {
                         if (value == null) value = "";
@@ -227,9 +230,14 @@ public class VncInstallationNodeView
             @Override
             public void mousePressed(MouseEvent e) {
                 if (keyboardFactory == null) return;
-                KeyboardTextInput kb = keyboardFactory.createStringKeyboardInput();
+                // Password-dedicated variant masks characters with asterisks on the
+                // virtual keyboard. Previously used createStringKeyboardInput which
+                // showed the password in plaintext on the keyboard.
+                KeyboardTextInput kb = keyboardFactory.createPasswordKeyboardInput();
                 kb.setInitialValue(new String(field.getPassword()));
-                kb.show(e, new KeyboardInputCallback<String>() {
+                // JPasswordField extends JTextField, so it's accepted by the
+                // JTextField overload of show().
+                kb.show(field, new KeyboardInputCallback<String>() {
                     @Override
                     public void onOk(String value) {
                         if (value == null) value = "";
@@ -256,7 +264,12 @@ public class VncInstallationNodeView
             @Override
             public void mousePressed(MouseEvent e) {
                 if (keyboardFactory == null) return;
-                KeyboardNumberInput<Integer> kb = keyboardFactory.createIntegerKeyboardInput();
+                // Factory method is createIntegerKeypadInput() (keypad, not keyboard).
+                // For strictly-positive spinners (ports, timeouts, client limits) we
+                // use the positive variant so the '-' key is hidden on the keypad.
+                KeyboardNumberInput<Integer> kb = (min >= 0)
+                        ? keyboardFactory.createPositiveIntegerKeypadInput()
+                        : keyboardFactory.createIntegerKeypadInput();
                 int initial;
                 try {
                     Object v = spinner.getValue();
@@ -265,7 +278,8 @@ public class VncInstallationNodeView
                     initial = min;
                 }
                 kb.setInitialValue(Integer.valueOf(initial));
-                kb.show(e, new KeyboardInputCallback<Integer>() {
+                // show() takes the component (JTextField), not the MouseEvent.
+                kb.show(tf, new KeyboardInputCallback<Integer>() {
                     @Override
                     public void onOk(Integer value) {
                         if (value == null) return;
