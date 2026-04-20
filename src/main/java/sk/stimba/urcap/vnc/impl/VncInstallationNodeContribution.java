@@ -38,6 +38,7 @@ import com.ur.urcap.api.contribution.installation.CreationContext;
 import com.ur.urcap.api.contribution.installation.InstallationAPIProvider;
 import com.ur.urcap.api.domain.data.DataModel;
 import com.ur.urcap.api.domain.script.ScriptWriter;
+import com.ur.urcap.api.domain.userinteraction.keyboard.KeyboardInputFactory;
 
 import java.awt.EventQueue;
 import java.io.BufferedReader;
@@ -138,6 +139,22 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
         this.model = model;
         this.view = view;
         this.daemonService = daemonService;
+
+        // v3.3.0 — wire Polyscope's on-screen keyboard into the view so text-field
+        // taps on the teach pendant open the PS native keyboard (JTextField alone
+        // does NOT trigger it). URCap API ≥ 1.3 supports this via
+        // InstallationAPIProvider → UserInterfaceAPI → UserInteraction.
+        try {
+            KeyboardInputFactory kbf = apiProvider
+                    .getUserInterfaceAPI()
+                    .getUserInteraction()
+                    .getKeyboardInputFactory();
+            this.view.setKeyboardInputFactory(kbf);
+        } catch (Throwable t) {
+            // If the API surface changed in future PS releases, fall back to raw
+            // Swing (which only works when a physical keyboard is attached).
+            // Better to degrade than refuse to load.
+        }
 
         if (context.getNodeCreationType() == CreationContext.NodeCreationType.NEW) {
             model.set(KEY_PORT,             DEFAULT_PORT);

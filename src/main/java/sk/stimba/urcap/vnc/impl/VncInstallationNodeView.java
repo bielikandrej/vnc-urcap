@@ -33,6 +33,10 @@
 package sk.stimba.urcap.vnc.impl;
 
 import com.ur.urcap.api.contribution.installation.swing.SwingInstallationNodeView;
+import com.ur.urcap.api.domain.userinteraction.keyboard.KeyboardInputCallback;
+import com.ur.urcap.api.domain.userinteraction.keyboard.KeyboardInputFactory;
+import com.ur.urcap.api.domain.userinteraction.keyboard.KeyboardNumberInput;
+import com.ur.urcap.api.domain.userinteraction.keyboard.KeyboardTextInput;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -69,6 +73,8 @@ import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
@@ -168,6 +174,110 @@ public class VncInstallationNodeView
 
     // Guard so contribution-driven updateXxx() calls don't re-fire listeners
     private boolean updatingFromModel = false;
+
+    // v3.3.0 — Polyscope on-screen keyboard factory (wired from Contribution).
+    // When null, JTextField falls back to native Swing focus behaviour which
+    // requires a physical keyboard. On a teach pendant this means the user
+    // cannot type — so we install a mouse-press listener on every text field
+    // that explicitly pops up PS's native virtual keyboard.
+    private KeyboardInputFactory keyboardFactory;
+
+    public void setKeyboardInputFactory(KeyboardInputFactory factory) {
+        this.keyboardFactory = factory;
+    }
+
+    /**
+     * Install a mouse-press listener on the given text field that opens PS's
+     * native on-screen keyboard when tapped. On OK the typed value is written
+     * back into the field and {@code onCommit} fires so the contribution can
+     * persist it (same path as the existing FocusLost/ActionListener).
+     *
+     * If {@link #keyboardFactory} is null (desktop URSim dev without UI API),
+     * this is a no-op and the field behaves like a plain JTextField.
+     */
+    private void attachKeyboard(final JTextField field, final Runnable onCommit) {
+        if (field == null) return;
+        field.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (keyboardFactory == null) return;
+                KeyboardTextInput kb = keyboardFactory.createStringKeyboardInput();
+                kb.setInitialValue(field.getText() == null ? "" : field.getText());
+                kb.show(e, new KeyboardInputCallback<String>() {
+                    @Override
+                    public void onOk(String value) {
+                        if (value == null) value = "";
+                        field.setText(value);
+                        if (onCommit != null) onCommit.run();
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Password variant — feeds the current masked password into the keyboard,
+     * writes the result back onto the JPasswordField, and fires {@code onCommit}.
+     * PS's keyboard does not distinguish password vs text, so the value is
+     * visible while typing but the field re-masks as soon as the dialog closes.
+     */
+    private void attachKeyboard(final JPasswordField field, final Runnable onCommit) {
+        if (field == null) return;
+        field.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (keyboardFactory == null) return;
+                KeyboardTextInput kb = keyboardFactory.createStringKeyboardInput();
+                kb.setInitialValue(new String(field.getPassword()));
+                kb.show(e, new KeyboardInputCallback<String>() {
+                    @Override
+                    public void onOk(String value) {
+                        if (value == null) value = "";
+                        field.setText(value);
+                        if (onCommit != null) onCommit.run();
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Attach PS's numeric on-screen keyboard to a JSpinner's internal editor
+     * field. The JSpinner itself doesn't receive mouse events cleanly through
+     * its editor on the pendant, so we grab the inner text field via
+     * DefaultEditor.getTextField() and listen there.
+     */
+    private void attachKeyboardToSpinner(final JSpinner spinner, final int min, final int max) {
+        if (spinner == null) return;
+        if (!(spinner.getEditor() instanceof JSpinner.DefaultEditor)) return;
+        final JTextField tf = ((JSpinner.DefaultEditor) spinner.getEditor()).getTextField();
+        if (tf == null) return;
+        tf.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (keyboardFactory == null) return;
+                KeyboardNumberInput<Integer> kb = keyboardFactory.createIntegerKeyboardInput();
+                int initial;
+                try {
+                    Object v = spinner.getValue();
+                    initial = (v instanceof Integer) ? ((Integer) v).intValue() : min;
+                } catch (Exception ex) {
+                    initial = min;
+                }
+                kb.setInitialValue(Integer.valueOf(initial));
+                kb.show(e, new KeyboardInputCallback<Integer>() {
+                    @Override
+                    public void onOk(Integer value) {
+                        if (value == null) return;
+                        int v = value.intValue();
+                        if (v < min) v = min;
+                        if (v > max) v = max;
+                        spinner.setValue(Integer.valueOf(v));
+                    }
+                });
+            }
+        });
+    }
 
     @Override
     public void buildUI(JPanel panel, final VncInstallationNodeContribution contribution) {
@@ -420,6 +530,8 @@ public class VncInstallationNodeView
                 if (v instanceof Integer) contribution.setPort(((Integer) v).intValue());
             }
         });
+        // v3.3.0 — tap on the port field opens PS's numeric on-screen keyboard
+        attachKeyboardToSpinner(portSpinner, 1, 65535);
         return portSpinner;
     }
 
@@ -453,6 +565,16 @@ public class VncInstallationNodeView
             public void keyReleased(KeyEvent e) {
                 if (updatingFromModel) return;
                 String pw = new String(passwordField.getPassword());
+                updatePasswordStrength(VncInstallationNodeContribution.estimatePasswordStrength(pw));
+            }
+        });
+        // v3.3.0 — tap opens PS's on-screen keyboard; OK commits same path as focus-lost
+        attachKeyboard(passwordField, new Runnable() {
+            @Override
+            public void run() {
+                if (updatingFromModel) return;
+                String pw = new String(passwordField.getPassword());
+                contribution.setPassword(pw);
                 updatePasswordStrength(VncInstallationNodeContribution.estimatePasswordStrength(pw));
             }
         });
@@ -503,6 +625,10 @@ public class VncInstallationNodeView
                 commitIxrouter();
             }
         });
+        // v3.3.0 — tap opens PS's on-screen keyboard; OK commits via validator
+        attachKeyboard(ixrouterField, new Runnable() {
+            @Override public void run() { if (!updatingFromModel) commitIxrouter(); }
+        });
         return ixrouterField;
     }
 
@@ -538,6 +664,10 @@ public class VncInstallationNodeView
                 if (updatingFromModel) return;
                 commitCustomerLabel();
             }
+        });
+        // v3.3.0 — tap opens PS's on-screen keyboard
+        attachKeyboard(customerLabelField, new Runnable() {
+            @Override public void run() { if (!updatingFromModel) commitCustomerLabel(); }
         });
         return customerLabelField;
     }
@@ -726,6 +856,10 @@ public class VncInstallationNodeView
                 }
             }
         });
+        // v3.3.0 — tap opens PS's numeric on-screen keyboard
+        attachKeyboardToSpinner(idleTimeoutSpinner,
+                VncInstallationNodeContribution.IDLE_TIMEOUT_MIN_MIN,
+                VncInstallationNodeContribution.IDLE_TIMEOUT_MIN_MAX);
         return idleTimeoutSpinner;
     }
 
@@ -751,6 +885,10 @@ public class VncInstallationNodeView
                 }
             }
         });
+        // v3.3.0 — tap opens PS's numeric on-screen keyboard
+        attachKeyboardToSpinner(maxClientsSpinner,
+                VncInstallationNodeContribution.MAX_CLIENTS_MIN,
+                VncInstallationNodeContribution.MAX_CLIENTS_MAX);
         return maxClientsSpinner;
     }
 
@@ -943,6 +1081,9 @@ public class VncInstallationNodeView
     private void showAddTempAllowDialog() {
         final JTextField ipField = new JTextField(16);
         final JTextField commentField = new JTextField(32);
+        // v3.3.0 — tap opens PS's on-screen keyboard for both fields inside the dialog
+        attachKeyboard(ipField, null);
+        attachKeyboard(commentField, null);
         final ButtonGroup ttlGroup = new ButtonGroup();
         final JRadioButton ttl15 = new JRadioButton("15 min", true);
         final JRadioButton ttl30 = new JRadioButton("30 min");

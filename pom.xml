@@ -6,7 +6,7 @@
 
     <groupId>sk.stimba.urcap</groupId>
     <artifactId>vnc-server</artifactId>
-    <version>3.2.1</version>
+    <version>3.3.0</version>
     <packaging>bundle</packaging>
 
     <name>STIMBA VNC Server URCap</name>
@@ -39,27 +39,26 @@
               1.13.0 = Polyscope 5.11.x+
               1.16.0 = Polyscope 5.16.x+
               1.18.0 = Polyscope 5.22+   — latest API in SDK 1.18 (NOT 5.25.x stable)
-            STIMBA fleet: PS 5.20 → 5.25.x (e-Series). We target 1.3.0 because:
-              (1) empirical (2026-04-20): PS 5.25.1 REJECTED vnc-server 3.1.0 (1.16)
-                  AND 3.2.0 (1.18) with "Tento URCap vyžaduje novšiu verziu API
-                  URCap" — PS 5.25.x is the LTS/stable branch and reads the
-                  SDK's "urcap-api-version" header via a PRE-OSGi wrapper check,
-                  rejecting anything targeting SDK 1.16/1.18 (those are feature
-                  track, for 5.22+ feature release);
-              (2) reference URCaps (UR's own) target 1.0.0–1.6.0: FZI External
-                  Control = 1.4.0, ToolComm Forwarder = 1.0.0.30, MyDaemonSwing =
-                  1.3.0, ROS-as-a-Service = 1.6.0 → 1.3.0 is the safe LCD;
-              (3) our code only uses DaemonService (2 methods), DaemonContribution
-                  (4 methods + State enum), InstallationNodeContribution (3 methods),
-                  DataModel (primitive overloads) — all present and byte-stable
-                  since 1.3.0, so no API-level regression from the 1.18 build.
-            Compatibility envelope: PS 5.0.x → PS 5.25.x (e-Series) + CB3 via flag.
-            History: v2.0.0 → v3.0.4 targeted 1.3.0; v3.1.0 (2026-04-19) bumped
-            to 1.16.0 and was rejected by PS 5.25.1; v3.2.0 (2026-04-20) bumped
-            to 1.18.0 and was ALSO rejected. v3.2.1 (2026-04-20) reverts to 1.3.0
-            — the LCD that works on any PolyScope 5.x stable branch.
+            STIMBA fleet: PS 5.20 → 5.25.x (e-Series). v3.3.0 targets 1.16.0 because:
+              (1) UR phone support on 2026-04-20 officially recommended API 1.16
+                  for PS 5.25.x after Andrej's install of v3.2.1 (API 1.3.0)
+                  installed cleanly but had no on-screen keyboard wiring;
+              (2) the earlier v3.1.0 rejection with 1.16.0 on the same robot was
+                  caused by a corrupted /root/.urcaps/ state from the prior 3.0.x
+                  build — confirmed by PS 5.25.1 accepting v3.2.1 after the SD
+                  card flash, i.e. the rejection was NOT an API version issue;
+              (3) API 1.16 introduces KeyboardInputFactory via UserInteraction
+                  which we wire into every text field + spinner in
+                  VncInstallationNodeView so a tap on the teach pendant opens
+                  Polyscope's native on-screen keyboard (the root cause of
+                  "nevyskoci klavesnica pri kliku" bug reported on v3.2.1).
+            Compatibility envelope: PS 5.22+ (feature track) + PS 5.25.x (stable).
+            History: v2.0.0 → v3.0.4 = 1.3.0; v3.1.0 (2026-04-19) → 1.16.0
+            rejected (stale /root/.urcaps/ state); v3.2.0 → 1.18.0 rejected;
+            v3.2.1 (2026-04-20) → 1.3.0 installed successfully but no keyboard;
+            v3.3.0 (2026-04-20) → 1.16.0 per UR support + keyboard fix.
         -->
-        <urcap.api.version>1.3.0</urcap.api.version>
+        <urcap.api.version>1.16.0</urcap.api.version>
         <osgi.core.version>4.3.0</osgi.core.version>
     </properties>
 
