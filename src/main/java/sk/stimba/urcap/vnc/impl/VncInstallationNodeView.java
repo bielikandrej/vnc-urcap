@@ -131,6 +131,13 @@ public class VncInstallationNodeView
     private JSpinner           idleTimeoutSpinner;    // C2
     private JSpinner           maxClientsSpinner;     // C4
 
+    // --- v3.4.0 Portal pairing widgets -------------------------------------
+    private JTextField  portalCodeField;
+    private JButton     portalPairBtn;
+    private JButton     portalUnpairBtn;
+    private JLabel      portalStatusLabel;
+    private JLabel      portalPairingResultLabel;
+
     // --- Sprint 3 tooltip texts (C7) — SK, 2-3 sentences, operator-friendly ---
     private static final String TIP_PORT =
             "<html>Štandardný VNC port je 5900. Meň len ak potrebuješ viac VNC inštancií<br>"
@@ -351,6 +358,12 @@ public class VncInstallationNodeView
         panel.add(row("",                         buildTlsFingerprintRow()));
         panel.add(rowWithInfo("Idle timeout (min):", buildIdleTimeoutField(),   TIP_IDLE));
         panel.add(rowWithInfo("Max klientov:",    buildMaxClientsField(),    TIP_MAX_CLIENTS));
+
+        panel.add(separator());
+
+        // --- v3.4.0 Portal pairing ---
+        panel.add(subtitle("<b>Portal.stimba.sk spárovanie (v3.4.0):</b>"));
+        panel.add(buildPortalPanel());
 
         panel.add(separator());
 
@@ -710,6 +723,106 @@ public class VncInstallationNodeView
             }
         });
         return strongPwdBox;
+    }
+
+    // =========================================================================
+    // v3.4.0 — Portal pairing UI
+    // =========================================================================
+
+    private JPanel buildPortalPanel() {
+        JPanel wrap = new JPanel();
+        wrap.setLayout(new BoxLayout(wrap, BoxLayout.Y_AXIS));
+        wrap.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        wrap.add(subtitle(
+                "Na portali vygeneruj claim code (portal.stimba.sk → Zariadenia → Rýchle pridanie), "
+              + "zadaj 13-znakový kód nižšie a stlač Spárovať. URCap si sám pýta token a posiela "
+              + "heartbeat každých 30 s. Robot sa do 30 s objaví v portali ako online."));
+
+        // Code input row
+        portalCodeField = new JTextField(14);
+        portalCodeField.setFont(new Font(Font.MONOSPACED, Font.BOLD, 16));
+        portalCodeField.setMaximumSize(new Dimension(260, 32));
+        portalCodeField.setPreferredSize(new Dimension(220, 32));
+        attachKeyboard(portalCodeField, null);
+
+        portalPairBtn = new JButton("Spárovať");
+        portalPairBtn.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) {
+                portalPairBtn.setEnabled(false);
+                updatePortalPairingResult(true, "Volám portal...");
+                contribution.pairWithCode(portalCodeField.getText(), new Runnable() {
+                    @Override public void run() {
+                        portalPairBtn.setEnabled(true);
+                    }
+                });
+            }
+        });
+
+        portalUnpairBtn = new JButton("Odpojiť");
+        portalUnpairBtn.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) {
+                contribution.unpair();
+            }
+        });
+
+        JPanel row = new JPanel();
+        row.setLayout(new BoxLayout(row, BoxLayout.X_AXIS));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(720, 40));
+        row.add(new JLabel("Claim code: "));
+        row.add(Box.createRigidArea(new Dimension(6, 0)));
+        row.add(portalCodeField);
+        row.add(Box.createRigidArea(new Dimension(8, 0)));
+        row.add(portalPairBtn);
+        row.add(Box.createRigidArea(new Dimension(4, 0)));
+        row.add(portalUnpairBtn);
+        row.add(Box.createHorizontalGlue());
+        wrap.add(row);
+
+        portalPairingResultLabel = new JLabel(" ");
+        portalPairingResultLabel.setFont(portalPairingResultLabel.getFont().deriveFont(Font.PLAIN, 12f));
+        wrap.add(row("", portalPairingResultLabel));
+
+        portalStatusLabel = new JLabel("Nespárované");
+        portalStatusLabel.setFont(portalStatusLabel.getFont().deriveFont(Font.BOLD, 12f));
+        wrap.add(row("Stav:", portalStatusLabel));
+
+        return wrap;
+    }
+
+    public void updatePortalPaired(boolean paired, String deviceIdMasked, String status) {
+        if (portalPairBtn == null) return;
+        portalPairBtn.setText(paired ? "Pre-spárovať" : "Spárovať");
+        portalUnpairBtn.setEnabled(paired);
+        portalCodeField.setEnabled(true);
+        if (paired) {
+            portalStatusLabel.setText(
+                    (status == null || status.isEmpty() ? "Spárované" : status)
+                  + " · device " + (deviceIdMasked == null ? "" : deviceIdMasked));
+            portalStatusLabel.setForeground(COLOR_OK);
+        } else {
+            portalStatusLabel.setText("Nespárované");
+            portalStatusLabel.setForeground(COLOR_WARN);
+        }
+    }
+
+    public void updatePortalStatus(String status) {
+        if (portalStatusLabel == null || status == null) return;
+        portalStatusLabel.setText(status);
+        if (status.toLowerCase().startsWith("online")) {
+            portalStatusLabel.setForeground(COLOR_OK);
+        } else if (status.toLowerCase().contains("chyba") || status.toLowerCase().contains("error")) {
+            portalStatusLabel.setForeground(COLOR_FAIL);
+        } else {
+            portalStatusLabel.setForeground(COLOR_WARN);
+        }
+    }
+
+    public void updatePortalPairingResult(boolean ok, String message) {
+        if (portalPairingResultLabel == null) return;
+        portalPairingResultLabel.setText(message == null ? " " : message);
+        portalPairingResultLabel.setForeground(ok ? COLOR_OK : COLOR_FAIL);
     }
 
     private JPanel buildHealthPanel() {

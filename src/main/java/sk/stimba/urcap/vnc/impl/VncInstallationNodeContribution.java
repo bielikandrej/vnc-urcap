@@ -76,6 +76,12 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
     private static final String KEY_IDLE_TIMEOUT_MIN = "vnc.idleTimeoutMin";   // v3.0.0 C2
     private static final String KEY_MAX_CLIENTS      = "vnc.maxClients";       // v3.0.0 C4
 
+    // --- v3.4.0 portal pairing --------------------------------------------
+    private static final String KEY_PORTAL_TOKEN       = "portal.token";
+    private static final String KEY_PORTAL_DEVICE_ID   = "portal.deviceId";
+    private static final String KEY_PORTAL_PAIRED_AT   = "portal.pairedAt";
+    private static final String KEY_PORTAL_LAST_STATUS = "portal.lastStatus";
+
     // --- Defaults ---------------------------------------------------------
     private static final int     DEFAULT_PORT             = 5900;
     private static final String  DEFAULT_PASSWORD         = "ixon";
@@ -130,6 +136,11 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
     private final VncDaemonService daemonService;
     private Timer uiTimer;
     private Timer healthTimer;
+
+    // v3.4.0 — portal pairing + heartbeat
+    private final PortalClient portalClient = new PortalClient(PortalClient.DEFAULT_PORTAL_URL);
+    private final DashboardClient dashboardClient = new DashboardClient();
+    private PortalHeartbeatRunner portalHeartbeat;
 
     public VncInstallationNodeContribution(InstallationAPIProvider apiProvider,
                                            VncInstallationNodeView view,
@@ -224,6 +235,10 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
         // Sprint 2 — start temp-allowlist table refresh (10s cadence).
         // Log tail timer starts only when the user toggles the "Auto-refresh" checkbox.
         view.startTempAllowlistTimer();
+
+        // v3.4.0 — populate portal pairing section + start heartbeat if paired
+        view.updatePortalPaired(isPaired(), getPortalDeviceIdMasked(), getPortalLastStatus());
+        startHeartbeatIfPaired();
     }
 
     @Override
@@ -231,6 +246,7 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
         if (uiTimer != null)     { uiTimer.cancel();     uiTimer = null;     }
         if (healthTimer != null) { healthTimer.cancel(); healthTimer = null; }
         if (view != null)        { view.stopSprint2Timers(); }
+        stopHeartbeat();
     }
 
     @Override
@@ -731,5 +747,183 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
             Thread.currentThread().interrupt();
             return "✗ interrupted";
         }
+    }
+
+    // ========================================================================
+    // v3.4.0 — Portal pairing + heartbeat
+    // ========================================================================
+    //
+    // Operator types a claim code into the Portal section; we POST to
+    // /api/claim/device and persist the returned device_id + token into the
+    // Polyscope DataModel. A background thread then posts heartbeats every
+    // 30s as long as this Installation view is open.
+    //
+    // NOTE: token storage is currently plaintext in DataModel (written to
+    // /root/installations/*.installation, chmod 600). AES-GCM wrapping is
+    // designed in URCAP_V3.4_DESIGN.md §4.2 and is a v3.5 task.
+
+    public boolean isPaired() {
+        String tk = get(KEY_PORTAL_TOKEN, "");
+        String id = get(KEY_PORTAL_DEVICE_ID, "");
+        return tk != null && !tk.isEmpty() && id != null && !id.isEmpty();
+    }
+
+    public String getPortalDeviceId() {
+        return get(KEY_PORTAL_DEVICE_ID, "");
+    }
+
+    public String getPortalDeviceIdMasked() {
+        String id = getPortalDeviceId();
+        if (id == null || id.length() < 8) return "";
+        return id.substring(0, 8) + "…" + id.substring(id.length() - 4);
+    }
+
+    public String getPortalLastStatus() {
+        return get(KEY_PORTAL_LAST_STATUS, "");
+    }
+
+    public String getPortalPairedAt() {
+        return get(KEY_PORTAL_PAIRED_AT, "");
+    }
+
+    /**
+     * Exchange a claim code for a device + token, persist, and start heartbeat.
+     * Runs on a background thread so the UI doesn't freeze on slow WAN.
+     * Called from the view (Swing EDT), callback updates UI via invokeLater.
+     */
+    public void pairWithCode(final String rawCode, final Runnable onDone) {
+        final String code = rawCode == null ? "" : rawCode.trim().toUpperCase();
+        if (code.isEmpty()) {
+            view.updatePortalPairingResult(false, "Zadaj claim code.");
+            return;
+        }
+        Thread t = new Thread(() -> {
+            try {
+                Map<String, String> info = new HashMap<>();
+                info.put("model", "UR10e");
+                info.put("polyscope_major", "ps5");
+                info.put("polyscope_version", System.getProperty("polyscope.version", ""));
+                info.put("lan_ip", getLocalIpSafe());
+                info.put("hostname", getHostnameSafe());
+                info.put("robot_serial", getRobotSerialSafe());
+
+                PortalClient.ClaimResponse resp = portalClient.claim(code, info);
+
+                model.set(KEY_PORTAL_TOKEN, resp.token);
+                model.set(KEY_PORTAL_DEVICE_ID, resp.deviceId);
+                model.set(KEY_PORTAL_PAIRED_AT, java.time.Instant.now().toString());
+                model.set(KEY_PORTAL_LAST_STATUS,
+                        resp.reused ? "Re-spárované" : "Spárované");
+
+                EventQueue.invokeLater(() -> {
+                    view.updatePortalPaired(true, getPortalDeviceIdMasked(), getPortalLastStatus());
+                    view.updatePortalPairingResult(true, resp.reused
+                            ? "Re-spárované · device_id " + getPortalDeviceIdMasked()
+                            : "Spárované · device_id " + getPortalDeviceIdMasked());
+                    startHeartbeatIfPaired();
+                    if (onDone != null) onDone.run();
+                });
+            } catch (PortalClient.ClaimError ce) {
+                final String msg = ce.httpStatus == 404
+                        ? "Neplatný alebo expirovaný kód."
+                        : ce.httpStatus == 429
+                            ? "Priveľa pokusov — skús o hodinu."
+                            : "Chyba: " + ce.errorCode + " (HTTP " + ce.httpStatus + ")";
+                EventQueue.invokeLater(() -> {
+                    view.updatePortalPairingResult(false, msg);
+                    if (onDone != null) onDone.run();
+                });
+            } catch (Exception e) {
+                final String msg = "Sieť / IO chyba: " + e.getClass().getSimpleName()
+                        + " — " + (e.getMessage() == null ? "?" : e.getMessage());
+                EventQueue.invokeLater(() -> {
+                    view.updatePortalPairingResult(false, msg);
+                    if (onDone != null) onDone.run();
+                });
+            }
+        }, "stimba-portal-pair");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    public void unpair() {
+        final String token = get(KEY_PORTAL_TOKEN, "");
+        final String deviceId = get(KEY_PORTAL_DEVICE_ID, "");
+
+        stopHeartbeat();
+
+        if (!token.isEmpty() && !deviceId.isEmpty()) {
+            Thread t = new Thread(() -> portalClient.unpair(token, deviceId), "stimba-portal-unpair");
+            t.setDaemon(true);
+            t.start();
+        }
+
+        model.set(KEY_PORTAL_TOKEN, "");
+        model.set(KEY_PORTAL_DEVICE_ID, "");
+        model.set(KEY_PORTAL_PAIRED_AT, "");
+        model.set(KEY_PORTAL_LAST_STATUS, "Odpojené");
+        view.updatePortalPaired(false, "", "Odpojené");
+    }
+
+    private void startHeartbeatIfPaired() {
+        if (!isPaired() || portalHeartbeat != null) return;
+        portalHeartbeat = new PortalHeartbeatRunner(
+                portalClient,
+                dashboardClient,
+                () -> get(KEY_PORTAL_TOKEN, ""),
+                () -> get(KEY_PORTAL_DEVICE_ID, ""),
+                (status) -> {
+                    model.set(KEY_PORTAL_LAST_STATUS, status);
+                    EventQueue.invokeLater(() -> view.updatePortalStatus(status));
+                }
+        );
+        portalHeartbeat.start();
+    }
+
+    private void stopHeartbeat() {
+        if (portalHeartbeat != null) {
+            portalHeartbeat.stop();
+            portalHeartbeat = null;
+        }
+    }
+
+    // --- helper: safe string get with default ---
+    private String get(String key, String dflt) {
+        try {
+            Object v = model.get(key);
+            return v == null ? dflt : v.toString();
+        } catch (Throwable t) {
+            return dflt;
+        }
+    }
+
+    // --- best-effort local-network helpers (never throw) ---
+    private static String getLocalIpSafe() {
+        try {
+            java.net.InetAddress addr = java.net.InetAddress.getLocalHost();
+            return addr.getHostAddress();
+        } catch (Throwable t) { return ""; }
+    }
+
+    private static String getHostnameSafe() {
+        try {
+            return java.net.InetAddress.getLocalHost().getHostName();
+        } catch (Throwable t) { return ""; }
+    }
+
+    /** Reads UR robot serial from /etc/hostname or Polyscope's known serial file if available. */
+    private static String getRobotSerialSafe() {
+        try {
+            Path p = Paths.get("/root/.urcontrol/serial-number.txt");
+            if (Files.exists(p)) return Files.readString(p, StandardCharsets.UTF_8).trim();
+        } catch (Throwable ignored) {}
+        try {
+            Path p = Paths.get("/etc/machine-id");
+            if (Files.exists(p)) {
+                String id = Files.readString(p, StandardCharsets.UTF_8).trim();
+                return id.length() > 16 ? id.substring(0, 16) : id;
+            }
+        } catch (Throwable ignored) {}
+        return "";
     }
 }

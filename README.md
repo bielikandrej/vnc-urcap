@@ -4,11 +4,11 @@
 ktorý spustí `x11vnc` server pripojený na Polyscope DISPLAY :0. Umožňuje vzdialený
 náhľad + ovládanie robotickej obrazovky cez IXON Cloud VNC tunel (port 5900).
 
-**Verzia:** 3.3.1 (current prod, 2026-04-21 — release cleanup on top of v3.3.0 KeyboardInputFactory fixes)
+**Verzia:** 3.4.0 (current prod, 2026-04-21 — portal pairing + heartbeat)
 **URCap API:** 1.16.0 (Polyscope 5.18+ LTS, validated on PS 5.25.1 per UR support 2026-04-20)
 **Autor:** Andrej Bielik — STIMBA, s. r. o.
 **Dátum:** 2026-04-21
-**Artefakt:** `dist/stimba-vnc-server-3.3.1.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.3.1](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.3.1).
+**Artefakt:** `dist/stimba-vnc-server-3.4.0.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.4.0](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.4.0).
 
 ---
 
@@ -164,6 +164,47 @@ regulovanom prostredí (NIS2, TISAX) je lepšie upgrade-núť klienta.
 
 ## Changelog
 
+### v3.4.0 — 2026-04-21 (portal pairing + heartbeat)
+
+Prvá verzia URCap-u, ktorá hovorí s `portal.stimba.sk` priamo — nie iba x11vnc
+pre IXON. Implementuje claim-code onboarding flow zo STIMBA portal ekosystému
+(viď `Portal Feature Parity Port/URCAP_V3.4_DESIGN.md`).
+
+1. **Portal spárovanie cez claim code** — operátor vygeneruje 13-znakový kód
+   na portal.stimba.sk, zadá ho v URCap UI → URCap POST-uje na
+   `/api/claim/device`, dostane `device_id` + `ptk_` token a ukladá ich do
+   Polyscope DataModel. Žiadne kopírovanie tokenov ručne, žiadny .env súbor.
+2. **Heartbeat každých 30 s** — nové `PortalHeartbeatRunner` (daemon thread)
+   sníma Dashboard Server `127.0.0.1:29999` (robotmode, safetymode, loaded
+   program, running) a POST-uje `/api/agent/heartbeat`. Portal UI ukazuje
+   robota ako online do 30 s po spárovaní.
+3. **Odpojenie** — tlačidlo "Odpojiť" v URCap UI vyzve portal cez
+   `/api/claim/device/revoke`, zmaže token z DataModel a zastaví heartbeat.
+4. **Fail-safe UX** — každá sieťová chyba je logovaná + zobrazená v Portal
+   sekcii URCap UI ("Chyba: ..."). Heartbeat loop je odolný proti WAN výpadku,
+   PS reštartu aj expirácii tokenu — portal strana je source of truth.
+5. **Nové Java triedy:**
+   - `PortalClient` — HTTPS klient (HttpsURLConnection, system CA bundle,
+     custom JSON handling, no-deps) pre `/api/claim/device` +
+     `/api/agent/heartbeat` + `/api/claim/device/revoke`
+   - `DashboardClient` — minimal TCP klient pre Polyscope Dashboard Server
+     :29999, vráti snapshot alebo "disconnected" namiesto throw
+   - `PortalHeartbeatRunner` — `ScheduledExecutorService` daemon s 30 s fixed
+     delay, tolerantný na všetky failure modes
+
+**Čo ešte NIE je v 3.4.0 (v3.5 scope):**
+- AES-GCM wrapping tokenu pri ukladaní (teraz plaintext v DataModel; súbor
+  je root-owned, chmod 600)
+- TLS certificate pinning na LE intermediate CA (teraz iba system CA bundle)
+- `/api/agent/metrics/ingest` RTDE telemetry push (teraz iba Dashboard-level
+  snapshot cez heartbeat payload)
+- `/api/agent/commands` poll pre AI-generated Dashboard commands
+
+**Kompatibilita:** existujúce v3.3.1 deployments zostávajú funkčné (VNC-only).
+Spárovanie je opt-in — kým operátor nezadá claim code, robot sa v portali
+neobjaví. Migrácia robota z v3.3.1 na v3.4.0 je bez dátovej straty (rovnaká
+`DataModel` schéma + pridané `portal.*` kľúče s defaultmi).
+
 ### v3.3.1 — 2026-04-21 (release cleanup)
 
 Žiadne code zmeny oproti v3.3.0 — iba formálny tag + GitHub Release pre lifecycle
@@ -174,7 +215,7 @@ disciplínu:
 2. **GitHub Release v3.3.1** s pripojeným `.urcap` artefaktom, SHA-256 checksum
    a changelog diffom — download bez GH login.
 3. **README header osvieženy** na 3.3.1 + URCap API 1.16.0 + dátum 2026-04-21.
-4. **Inštalačné pokyny** používajú `stimba-vnc-server-3.3.1.urcap`.
+4. **Inštalačné pokyny** používajú `stimba-vnc-server-3.4.0.urcap`.
 
 ### v3.3.0 — 2026-04-20 (URCap API 1.16.0 + virtual keyboard fix, vlastný tag nikdy nedostal)
 
@@ -366,11 +407,11 @@ Profil `-Premote` urobí:
 ## Manuálny deploy (bez Mavenu)
 
 Artefakt v dist adresári:
-`dist/stimba-vnc-server-3.3.1.urcap` (81 145 B, SHA-256 `cd9aacbd975735e78c3686b02c608dc16374a053364415e19974c57589f49ac1`).
+`dist/stimba-vnc-server-3.4.0.urcap` (81 145 B, SHA-256 `cd9aacbd975735e78c3686b02c608dc16374a053364415e19974c57589f49ac1`).
 
 ### USB inštalácia (bez SSH)
 
-1. Skopíruj `stimba-vnc-server-3.3.1.urcap` na USB kľúč (FAT32/exFAT).
+1. Skopíruj `stimba-vnc-server-3.4.0.urcap` na USB kľúč (FAT32/exFAT).
 2. Na Polyscope teach pendante: **Hamburger menu → Settings → System → URCaps**.
 3. **+ (Install)** → vyber súbor z USB → **Open**.
 4. Polyscope si vyžiada **Restart** — potvrď.
@@ -385,7 +426,7 @@ Artefakt v dist adresári:
 #    (Polyscope → Hamburger → Settings → Password → Admin)
 
 # 1) copy na robot (použiť NOVÉ silné heslo, nie easybot)
-scp dist/stimba-vnc-server-3.3.1.urcap root@192.168.0.1:/root/.urcaps/
+scp dist/stimba-vnc-server-3.4.0.urcap root@192.168.0.1:/root/.urcaps/
 
 # 2) (ak máš staršiu verziu) odstráň ju
 ssh root@192.168.0.1 "rm -f /root/.urcaps/stimba-vnc-server-2.*.urcap"
