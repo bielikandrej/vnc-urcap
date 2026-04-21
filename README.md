@@ -4,11 +4,11 @@
 ktorý spustí `x11vnc` server pripojený na Polyscope DISPLAY :0. Umožňuje vzdialený
 náhľad + ovládanie robotickej obrazovky cez IXON Cloud VNC tunel (port 5900).
 
-**Verzia:** 3.5.0 (current prod, 2026-04-21 — portal command execution + token-at-rest + cert pinning scaffold)
+**Verzia:** 3.6.0 (current prod, 2026-04-21 — Primary Interface + urscript_send + io_set_digital_out)
 **URCap API:** 1.16.0 (Polyscope 5.18+ LTS, validated on PS 5.25.1 per UR support 2026-04-20)
 **Autor:** Andrej Bielik — STIMBA, s. r. o.
 **Dátum:** 2026-04-21
-**Artefakt:** `dist/stimba-vnc-server-3.5.0.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.5.0](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.5.0).
+**Artefakt:** `dist/stimba-vnc-server-3.6.0.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.6.0](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.6.0).
 
 ---
 
@@ -164,6 +164,25 @@ regulovanom prostredí (NIS2, TISAX) je lepšie upgrade-núť klienta.
 
 ## Changelog
 
+### v3.6.0 — 2026-04-21 (Primary Interface + free URScript + digital I/O)
+
+Tretia integračná verzia portálu. v3.4.0 pozorovala (heartbeat), v3.5.0
+reagovala na Dashboard commands, **v3.6.0 vie vykonať ľubovoľný URScript**
+cez UR Primary Interface (:30001). Toto je technický základ pre AI-driven
+robot control — detail architektúry v
+[DEEP_RESEARCH_AI_ROBOT_CONTROL.md](https://github.com/bielikandrej/portal-stimba-sk/blob/main/Portal%20Feature%20Parity%20Port/DEEP_RESEARCH_AI_ROBOT_CONTROL.md).
+
+1. **`PrimaryInterfaceClient.java`** — raw TCP klient pre `127.0.0.1:30001`.
+   `sendScript(text)` — UR vykoná okamžite. 2s connect + 2s write timeout, Java 8 compat.
+2. **`urscript_send` command handler** — portal `/api/devices/[id]/urscript`
+   enqueue-uje, URCap claim-uje cez existujúci poll loop, prepošle cez
+   Primary Interface. Upper limit 16 KB (portal už má svoj 8 KB + blacklist).
+3. **`io_set_digital_out` command handler** — synthesize 1-line URScript
+   `set_digital_out(idx, True|False)` a pošle cez Primary. Standard UR board DO 0-7.
+4. **Backward compat:** v3.5.0 Dashboard + set_vnc_password zostávajú
+   nedotknuté. Re-pair nie je potrebný, existujúce pairingy dostanú nové
+   toolsy pri najbližšom command poll cykle.
+
 ### v3.5.0 — 2026-04-21 (portal command execution + security hardening)
 
 Druhá plná integračná verzia portal.stimba.sk. Kým v3.4.0 **pozorovala**
@@ -266,7 +285,7 @@ disciplínu:
 2. **GitHub Release v3.3.1** s pripojeným `.urcap` artefaktom, SHA-256 checksum
    a changelog diffom — download bez GH login.
 3. **README header osvieženy** na 3.3.1 + URCap API 1.16.0 + dátum 2026-04-21.
-4. **Inštalačné pokyny** používajú `stimba-vnc-server-3.5.0.urcap`.
+4. **Inštalačné pokyny** používajú `stimba-vnc-server-3.6.0.urcap`.
 
 ### v3.3.0 — 2026-04-20 (URCap API 1.16.0 + virtual keyboard fix, vlastný tag nikdy nedostal)
 
@@ -458,11 +477,11 @@ Profil `-Premote` urobí:
 ## Manuálny deploy (bez Mavenu)
 
 Artefakt v dist adresári:
-`dist/stimba-vnc-server-3.5.0.urcap` (81 145 B, SHA-256 `cd9aacbd975735e78c3686b02c608dc16374a053364415e19974c57589f49ac1`).
+`dist/stimba-vnc-server-3.6.0.urcap` (81 145 B, SHA-256 `cd9aacbd975735e78c3686b02c608dc16374a053364415e19974c57589f49ac1`).
 
 ### USB inštalácia (bez SSH)
 
-1. Skopíruj `stimba-vnc-server-3.5.0.urcap` na USB kľúč (FAT32/exFAT).
+1. Skopíruj `stimba-vnc-server-3.6.0.urcap` na USB kľúč (FAT32/exFAT).
 2. Na Polyscope teach pendante: **Hamburger menu → Settings → System → URCaps**.
 3. **+ (Install)** → vyber súbor z USB → **Open**.
 4. Polyscope si vyžiada **Restart** — potvrď.
@@ -477,7 +496,7 @@ Artefakt v dist adresári:
 #    (Polyscope → Hamburger → Settings → Password → Admin)
 
 # 1) copy na robot (použiť NOVÉ silné heslo, nie easybot)
-scp dist/stimba-vnc-server-3.5.0.urcap root@192.168.0.1:/root/.urcaps/
+scp dist/stimba-vnc-server-3.6.0.urcap root@192.168.0.1:/root/.urcaps/
 
 # 2) (ak máš staršiu verziu) odstráň ju
 ssh root@192.168.0.1 "rm -f /root/.urcaps/stimba-vnc-server-2.*.urcap"
