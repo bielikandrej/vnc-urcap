@@ -62,6 +62,31 @@ public final class DashboardClient {
         }
     }
 
+    /**
+     * Fire-and-forget Dashboard command (v3.5.0+). Opens a short-lived socket,
+     * sends the textual command, reads a single-line response. Returns the
+     * response line or null on error — callers decide whether response
+     * starting with "Program ..." or matching expected ACK is a success.
+     */
+    public String execute(String command) {
+        try (Socket s = new Socket()) {
+            s.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+            s.setSoTimeout(READ_TIMEOUT_MS);
+            try (BufferedReader in = new BufferedReader(
+                    new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
+                 PrintWriter out = new PrintWriter(
+                    new OutputStreamWriter(s.getOutputStream(), StandardCharsets.UTF_8), false)) {
+                in.readLine(); // banner
+                out.print(command);
+                out.print('\n');
+                out.flush();
+                return in.readLine();
+            }
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
     public Snapshot snapshot() {
         try (Socket s = new Socket()) {
             s.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);

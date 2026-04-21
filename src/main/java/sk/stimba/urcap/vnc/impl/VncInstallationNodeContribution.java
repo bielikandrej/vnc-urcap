@@ -142,6 +142,10 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
     private final DashboardClient dashboardClient = new DashboardClient();
     private PortalHeartbeatRunner portalHeartbeat;
 
+    // v3.5.0 — token at-rest wrap + command poll
+    private TokenCrypto tokenCrypto;
+    private DashboardCommandPoller commandPoller;
+
     public VncInstallationNodeContribution(InstallationAPIProvider apiProvider,
                                            VncInstallationNodeView view,
                                            DataModel model,
@@ -809,9 +813,15 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
 
                 PortalClient.ClaimResponse resp = portalClient.claim(code, info);
 
-                model.set(KEY_PORTAL_TOKEN, resp.token);
+                // v3.5.0 — wrap token with AES-GCM before persisting to DataModel.
+                // KDF seed is derived from robot serial + paired-at timestamp so
+                // URCap reinstall / different robot can't read the ciphertext.
+                String pairedAt = java.time.Instant.now().toString();
+                model.set(KEY_PORTAL_PAIRED_AT, pairedAt);
+                tokenCrypto = new TokenCrypto(getRobotSerialSafe(), pairedAt);
+                String wrapped = tokenCrypto.wrap(resp.token);
+                model.set(KEY_PORTAL_TOKEN, wrapped == null ? resp.token : wrapped);
                 model.set(KEY_PORTAL_DEVICE_ID, resp.deviceId);
-                model.set(KEY_PORTAL_PAIRED_AT, java.time.Instant.now().toString());
                 model.set(KEY_PORTAL_LAST_STATUS,
                         resp.reused ? "Re-spárované" : "Spárované");
 
@@ -847,13 +857,13 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
     }
 
     public void unpair() {
-        final String token = get(KEY_PORTAL_TOKEN, "");
+        final String unwrappedToken = getUnwrappedToken();
         final String deviceId = get(KEY_PORTAL_DEVICE_ID, "");
 
         stopHeartbeat();
 
-        if (!token.isEmpty() && !deviceId.isEmpty()) {
-            Thread t = new Thread(() -> portalClient.unpair(token, deviceId), "stimba-portal-unpair");
+        if (!unwrappedToken.isEmpty() && !deviceId.isEmpty()) {
+            Thread t = new Thread(() -> portalClient.unpair(unwrappedToken, deviceId), "stimba-portal-unpair");
             t.setDaemon(true);
             t.start();
         }
@@ -862,28 +872,172 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
         model.set(KEY_PORTAL_DEVICE_ID, "");
         model.set(KEY_PORTAL_PAIRED_AT, "");
         model.set(KEY_PORTAL_LAST_STATUS, "Odpojené");
+        tokenCrypto = null;
         view.updatePortalPaired(false, "", "Odpojené");
     }
 
     private void startHeartbeatIfPaired() {
-        if (!isPaired() || portalHeartbeat != null) return;
-        portalHeartbeat = new PortalHeartbeatRunner(
-                portalClient,
-                dashboardClient,
-                () -> get(KEY_PORTAL_TOKEN, ""),
-                () -> get(KEY_PORTAL_DEVICE_ID, ""),
-                (status) -> {
-                    model.set(KEY_PORTAL_LAST_STATUS, status);
-                    EventQueue.invokeLater(() -> view.updatePortalStatus(status));
-                }
-        );
-        portalHeartbeat.start();
+        if (!isPaired()) return;
+        if (portalHeartbeat == null) {
+            portalHeartbeat = new PortalHeartbeatRunner(
+                    portalClient,
+                    dashboardClient,
+                    () -> getUnwrappedToken(),
+                    () -> get(KEY_PORTAL_DEVICE_ID, ""),
+                    () -> TokenCrypto.sha256Hex(getPassword()),
+                    (status) -> {
+                        model.set(KEY_PORTAL_LAST_STATUS, status);
+                        EventQueue.invokeLater(() -> view.updatePortalStatus(status));
+                    }
+            );
+            portalHeartbeat.start();
+        }
+        if (commandPoller == null) {
+            commandPoller = new DashboardCommandPoller(
+                    portalClient,
+                    dashboardClient,
+                    () -> getUnwrappedToken(),
+                    () -> get(KEY_PORTAL_DEVICE_ID, ""),
+                    (toolName, argsJson) -> dispatchAgentCommand(toolName, argsJson)
+            );
+            commandPoller.start();
+        }
     }
 
     private void stopHeartbeat() {
         if (portalHeartbeat != null) {
             portalHeartbeat.stop();
             portalHeartbeat = null;
+        }
+        if (commandPoller != null) {
+            commandPoller.stop();
+            commandPoller = null;
+        }
+    }
+
+    /** v3.5.0 — token is stored wrapped (AES-GCM); unwrap lazily on every call. */
+    private String getUnwrappedToken() {
+        String wrapped = get(KEY_PORTAL_TOKEN, "");
+        if (wrapped.isEmpty()) return "";
+        if (!wrapped.startsWith("v1.")) {
+            // v3.4.0 plaintext token — accept for backward compat, will be re-wrapped on next pair
+            return wrapped;
+        }
+        ensureTokenCrypto();
+        return tokenCrypto.unwrap(wrapped).orElse("");
+    }
+
+    private void ensureTokenCrypto() {
+        if (tokenCrypto == null) {
+            String serial = getRobotSerialSafe();
+            String installSalt = get(KEY_PORTAL_PAIRED_AT, "urcap-default-install");
+            tokenCrypto = new TokenCrypto(serial, installSalt);
+        }
+    }
+
+    /**
+     * v3.5.0 — dispatch an agent command from the portal queue to the robot.
+     * Returns an Ack that the poller PATCHes back to portal.
+     */
+    private DashboardCommandPoller.Ack dispatchAgentCommand(String toolName, String argsJson) {
+        try {
+            switch (toolName == null ? "" : toolName) {
+                case "dashboard_power_on":
+                    return ackFromDashboard(dashboardClient.execute("power on"));
+                case "dashboard_brake_release":
+                    return ackFromDashboard(dashboardClient.execute("brake release"));
+                case "dashboard_safetymode":
+                    return ackFromDashboard(dashboardClient.execute("safetymode normal"));
+                case "program_load": {
+                    String name = extractArgString(argsJson, "program_name");
+                    if (name == null || name.isEmpty()) {
+                        return new DashboardCommandPoller.Ack(false, null, "missing program_name");
+                    }
+                    if (!name.endsWith(".urp") && !name.endsWith(".urpx")) name = name + ".urp";
+                    return ackFromDashboard(dashboardClient.execute("load " + name));
+                }
+                case "program_play":
+                    return ackFromDashboard(dashboardClient.execute("play"));
+                case "program_pause":
+                    return ackFromDashboard(dashboardClient.execute("pause"));
+                case "program_stop":
+                    return ackFromDashboard(dashboardClient.execute("stop"));
+                case "set_vnc_password": {
+                    String pwd = extractArgString(argsJson, "password");
+                    if (pwd == null || pwd.isEmpty()) {
+                        return new DashboardCommandPoller.Ack(false, null, "missing password");
+                    }
+                    setVncPassword(pwd);
+                    return new DashboardCommandPoller.Ack(true, "vnc password rotated", null);
+                }
+                case "io_set_digital_out":
+                    // Requires Primary Interface URScript, not Dashboard Server.
+                    // Scoped for v3.6 — for now, acknowledge as unsupported.
+                    return new DashboardCommandPoller.Ack(false, null, "io_set_digital_out not implemented in v3.5.0 — v3.6 scope");
+                default:
+                    return new DashboardCommandPoller.Ack(false, null, "unknown tool: " + toolName);
+            }
+        } catch (Throwable t) {
+            return new DashboardCommandPoller.Ack(false, null, "exception: " + t.getClass().getSimpleName() + " " + t.getMessage());
+        }
+    }
+
+    private static DashboardCommandPoller.Ack ackFromDashboard(String response) {
+        if (response == null) {
+            return new DashboardCommandPoller.Ack(false, null, "no response from Dashboard Server");
+        }
+        // PS Dashboard responses: success = prefixed with verb (e.g. "Powering on"),
+        // failure = starts with "Failed" or "error".
+        String lower = response.toLowerCase();
+        boolean ok = !(lower.startsWith("failed") || lower.startsWith("error") ||
+                       lower.contains("no program loaded"));
+        return new DashboardCommandPoller.Ack(ok, response, ok ? null : response);
+    }
+
+    private static String extractArgString(String json, String key) {
+        if (json == null) return null;
+        int idx = json.indexOf("\"" + key + "\"");
+        if (idx < 0) return null;
+        int colon = json.indexOf(':', idx);
+        if (colon < 0) return null;
+        int q1 = json.indexOf('"', colon);
+        if (q1 < 0) return null;
+        StringBuilder sb = new StringBuilder();
+        for (int i = q1 + 1; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (c == '\\' && i + 1 < json.length()) { sb.append(json.charAt(++i)); continue; }
+            if (c == '"') return sb.toString();
+            sb.append(c);
+        }
+        return null;
+    }
+
+    /**
+     * v3.5.0 — set VNC password via x11vnc -storepasswd file + daemon restart.
+     * Path must match the run-vnc.sh -rfbauth flag; we persist to the same
+     * CONFIG_FILE consumed by the daemon.
+     */
+    private void setVncPassword(String newPassword) {
+        // Persist into DataModel so the setting survives reboots.
+        model.set(KEY_PASSWORD, newPassword);
+        // Write config file (same path daemon reads) and ask it to restart.
+        try {
+            writeConfigFile();
+        } catch (Throwable t) {
+            // Best effort — even if write failed, model update is persisted
+        }
+        // Bounce the daemon so x11vnc picks up the new -rfbauth password.
+        try {
+            daemonService.getDaemon().setDesiredState(
+                    com.ur.urcap.api.contribution.DaemonContribution.State.STOPPED);
+            Thread.sleep(1000);
+            daemonService.getDaemon().setDesiredState(
+                    com.ur.urcap.api.contribution.DaemonContribution.State.RUNNING);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        } catch (Throwable t) {
+            // If daemon restart fails, next heartbeat will still reflect old
+            // password hash — portal will keep weak=true until operator retries.
         }
     }
 

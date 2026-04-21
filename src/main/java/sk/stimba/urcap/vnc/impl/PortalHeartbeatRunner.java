@@ -29,6 +29,7 @@ public final class PortalHeartbeatRunner {
     private final DashboardClient dashboard;
     private final Supplier tokenSupplier;
     private final Supplier deviceIdSupplier;
+    private final Supplier vncPasswordHashSupplier; // v3.5 — optional; may return null
     private final StatusSink statusSink;
     private final long startedAtMs = System.currentTimeMillis();
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -42,15 +43,27 @@ public final class PortalHeartbeatRunner {
     public interface Supplier { String get(); }
     public interface StatusSink { void update(String status); }
 
+    /** v3.4.0 back-compat constructor — no password hash supplier. */
     public PortalHeartbeatRunner(PortalClient client,
                                  DashboardClient dashboard,
                                  Supplier tokenSupplier,
                                  Supplier deviceIdSupplier,
                                  StatusSink statusSink) {
+        this(client, dashboard, tokenSupplier, deviceIdSupplier, () -> null, statusSink);
+    }
+
+    /** v3.5.0 constructor — includes VNC password hash in every heartbeat. */
+    public PortalHeartbeatRunner(PortalClient client,
+                                 DashboardClient dashboard,
+                                 Supplier tokenSupplier,
+                                 Supplier deviceIdSupplier,
+                                 Supplier vncPasswordHashSupplier,
+                                 StatusSink statusSink) {
         this.client = client;
         this.dashboard = dashboard;
         this.tokenSupplier = tokenSupplier;
         this.deviceIdSupplier = deviceIdSupplier;
+        this.vncPasswordHashSupplier = vncPasswordHashSupplier;
         this.statusSink = statusSink;
     }
 
@@ -124,6 +137,16 @@ public final class PortalHeartbeatRunner {
         queue.put("metrics", 0);
         queue.put("audit", 0);
         payload.put("queueDepth", queue);
+
+        // v3.5.0 — send sha256(vnc_password) if available so portal can flag
+        // weak/default seeds without ever seeing the plaintext.
+        String hash = null;
+        try {
+            if (vncPasswordHashSupplier != null) hash = vncPasswordHashSupplier.get();
+        } catch (Throwable ignored) {}
+        if (hash != null && !hash.isEmpty()) {
+            payload.put("vncPasswordHash", hash);
+        }
 
         return PortalClient.toJson(payload);
     }

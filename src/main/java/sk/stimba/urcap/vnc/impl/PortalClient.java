@@ -32,7 +32,7 @@ public final class PortalClient {
     public static final String DEFAULT_PORTAL_URL = "https://portal.stimba.sk";
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS    = 15_000;
-    public static final String URCAP_VERSION    = "stimba-vnc-urcap/3.4.0";
+    public static final String URCAP_VERSION    = "stimba-vnc-urcap/3.5.0";
 
     private final String portalUrl;
 
@@ -53,6 +53,15 @@ public final class PortalClient {
             this.token = token;
             this.heartbeatIntervalS = hb;
             this.reused = reused;
+        }
+    }
+
+    public static final class QueuedCommand {
+        public final String id;
+        public final String toolName;
+        public final String argsJson;
+        public QueuedCommand(String id, String toolName, String argsJson) {
+            this.id = id; this.toolName = toolName; this.argsJson = argsJson;
         }
     }
 
@@ -129,6 +138,60 @@ public final class PortalClient {
         }
     }
 
+    /**
+     * v3.5.0 — Poll queued AI commands for this device. Atomic claim on the
+     * portal side (UPDATE … RETURNING * so concurrent pollers don't double-dispatch).
+     */
+    public java.util.List<QueuedCommand> pollCommands(String token, String deviceId) {
+        java.util.List<QueuedCommand> out = new java.util.ArrayList<>();
+        try {
+            HttpResult r = get("/api/agent/commands", token, deviceId);
+            if (r.code != 200) return out;
+            // Response shape: { device_id, polled_at, commands: [ { id, tool_name, args: {...} } ] }
+            // We extract commands[] via simple string scanning since args is nested JSON.
+            String body = r.body;
+            int idxList = body.indexOf("\"commands\"");
+            if (idxList < 0) return out;
+            int arrStart = body.indexOf('[', idxList);
+            int arrEnd   = findMatchingBracket(body, arrStart);
+            if (arrStart < 0 || arrEnd < 0) return out;
+            String arr = body.substring(arrStart + 1, arrEnd);
+            // Split by top-level '},{' — fragile but good enough for portal's payload shape
+            java.util.List<String> items = splitTopLevelObjects(arr);
+            for (String item : items) {
+                String id   = extractString(item, "id");
+                String tool = extractString(item, "tool_name");
+                // args may be an object — grab raw sub-object after "args":
+                String argsJson = extractRawObject(item, "args");
+                if (id != null && tool != null) {
+                    out.add(new QueuedCommand(id, tool, argsJson == null ? "{}" : argsJson));
+                }
+            }
+        } catch (Throwable t) {
+            LOG.warning("pollCommands failed: " + t.getMessage());
+        }
+        return out;
+    }
+
+    /**
+     * v3.5.0 — PATCH command with completion status. ok → "completed", else "failed".
+     */
+    public boolean ackCommand(String token, String deviceId, String commandId,
+                              boolean ok, String result, String error) {
+        LinkedHashMap<String, Object> body = new LinkedHashMap<>();
+        body.put("id", commandId);
+        body.put("status", ok ? "completed" : "failed");
+        if (result != null) body.put("result", result);
+        if (error != null)  body.put("error", error);
+        try {
+            HttpResult r = patch("/api/agent/commands", token, deviceId, toJson(body));
+            return r.code >= 200 && r.code < 300;
+        } catch (IOException e) {
+            LOG.warning("ackCommand failed: " + e.getMessage());
+            return false;
+        }
+    }
+
     // --- HTTP helpers ---------------------------------------------------------
 
     private static final class HttpResult {
@@ -138,13 +201,33 @@ public final class PortalClient {
     }
 
     private HttpResult post(String path, String bearerToken, String deviceIdHeader, String bodyJson) throws IOException {
+        return exchange("POST", path, bearerToken, deviceIdHeader, bodyJson);
+    }
+
+    private HttpResult patch(String path, String bearerToken, String deviceIdHeader, String bodyJson) throws IOException {
+        return exchange("PATCH", path, bearerToken, deviceIdHeader, bodyJson);
+    }
+
+    private HttpResult get(String path, String bearerToken, String deviceIdHeader) throws IOException {
+        return exchange("GET", path, bearerToken, deviceIdHeader, null);
+    }
+
+    private HttpResult exchange(String method, String path, String bearerToken,
+                                String deviceIdHeader, String bodyJson) throws IOException {
         URL url = new URL(this.portalUrl + path);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         try {
             conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
             conn.setReadTimeout(READ_TIMEOUT_MS);
-            conn.setDoOutput(true);
-            conn.setRequestMethod("POST");
+            if (bodyJson != null) conn.setDoOutput(true);
+            try {
+                conn.setRequestMethod(method);
+            } catch (java.net.ProtocolException pe) {
+                // PATCH on older JDKs requires reflection tricks; our build target is
+                // modern enough that this should never fire. Fall back to X-HTTP-Method-Override.
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("X-HTTP-Method-Override", method);
+            }
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setRequestProperty("Accept", "application/json");
             conn.setRequestProperty("User-Agent", URCAP_VERSION);
@@ -154,9 +237,17 @@ public final class PortalClient {
             if (deviceIdHeader != null) {
                 conn.setRequestProperty("X-Stimba-Device-Id", deviceIdHeader);
             }
-            byte[] bytes = bodyJson.getBytes(StandardCharsets.UTF_8);
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(bytes);
+
+            // v3.5 — apply cert pinning if configured
+            if (conn instanceof javax.net.ssl.HttpsURLConnection) {
+                CertPinner.apply((javax.net.ssl.HttpsURLConnection) conn);
+            }
+
+            if (bodyJson != null) {
+                byte[] bytes = bodyJson.getBytes(StandardCharsets.UTF_8);
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(bytes);
+                }
             }
             int code = conn.getResponseCode();
             InputStream in = (code >= 200 && code < 400) ? conn.getInputStream() : conn.getErrorStream();
@@ -165,6 +256,73 @@ public final class PortalClient {
         } finally {
             conn.disconnect();
         }
+    }
+
+    // --- Minimal JSON scanning helpers for pollCommands -----------------------
+
+    static int findMatchingBracket(String s, int openIdx) {
+        if (openIdx < 0 || openIdx >= s.length() || s.charAt(openIdx) != '[') return -1;
+        int depth = 0;
+        boolean inStr = false;
+        boolean esc = false;
+        for (int i = openIdx; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (esc) { esc = false; continue; }
+            if (c == '\\') { esc = true; continue; }
+            if (c == '"') { inStr = !inStr; continue; }
+            if (inStr) continue;
+            if (c == '[') depth++;
+            else if (c == ']') { depth--; if (depth == 0) return i; }
+        }
+        return -1;
+    }
+
+    static java.util.List<String> splitTopLevelObjects(String arr) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        int depth = 0;
+        boolean inStr = false;
+        boolean esc = false;
+        int start = -1;
+        for (int i = 0; i < arr.length(); i++) {
+            char c = arr.charAt(i);
+            if (esc) { esc = false; continue; }
+            if (c == '\\') { esc = true; continue; }
+            if (c == '"') { inStr = !inStr; continue; }
+            if (inStr) continue;
+            if (c == '{') { if (depth == 0) start = i; depth++; }
+            else if (c == '}') { depth--; if (depth == 0 && start >= 0) {
+                out.add(arr.substring(start, i + 1));
+                start = -1;
+            }}
+        }
+        return out;
+    }
+
+    static String extractRawObject(String json, String key) {
+        int idx = json.indexOf("\"" + key + "\"");
+        if (idx < 0) return null;
+        int colon = json.indexOf(':', idx);
+        if (colon < 0) return null;
+        int braceStart = -1;
+        for (int i = colon + 1; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') continue;
+            if (c == '{') { braceStart = i; break; }
+            return null;
+        }
+        if (braceStart < 0) return null;
+        int depth = 0;
+        boolean inStr = false, esc = false;
+        for (int i = braceStart; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (esc) { esc = false; continue; }
+            if (c == '\\') { esc = true; continue; }
+            if (c == '"') { inStr = !inStr; continue; }
+            if (inStr) continue;
+            if (c == '{') depth++;
+            else if (c == '}') { depth--; if (depth == 0) return json.substring(braceStart, i + 1); }
+        }
+        return null;
     }
 
     private static String readAll(InputStream in) throws IOException {

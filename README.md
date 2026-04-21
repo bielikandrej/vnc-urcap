@@ -4,11 +4,11 @@
 ktorý spustí `x11vnc` server pripojený na Polyscope DISPLAY :0. Umožňuje vzdialený
 náhľad + ovládanie robotickej obrazovky cez IXON Cloud VNC tunel (port 5900).
 
-**Verzia:** 3.4.0 (current prod, 2026-04-21 — portal pairing + heartbeat)
+**Verzia:** 3.5.0 (current prod, 2026-04-21 — portal command execution + token-at-rest + cert pinning scaffold)
 **URCap API:** 1.16.0 (Polyscope 5.18+ LTS, validated on PS 5.25.1 per UR support 2026-04-20)
 **Autor:** Andrej Bielik — STIMBA, s. r. o.
 **Dátum:** 2026-04-21
-**Artefakt:** `dist/stimba-vnc-server-3.4.0.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.4.0](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.4.0).
+**Artefakt:** `dist/stimba-vnc-server-3.5.0.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.5.0](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.5.0).
 
 ---
 
@@ -164,6 +164,57 @@ regulovanom prostredí (NIS2, TISAX) je lepšie upgrade-núť klienta.
 
 ## Changelog
 
+### v3.5.0 — 2026-04-21 (portal command execution + security hardening)
+
+Druhá plná integračná verzia portal.stimba.sk. Kým v3.4.0 **pozorovala**
+(claim + heartbeat), v3.5.0 **reaguje** — portal vie poslať do URCap-u
+príkazy (VNC heslo rotation, Dashboard Server akcie) a URCap ich vykoná.
+Súčasne pridáva security layer-y ktoré boli scope-nuté ako v3.5 v
+[URCAP_V3.4_DESIGN.md](https://github.com/bielikandrej/portal-stimba-sk/blob/main/Portal%20Feature%20Parity%20Port/URCAP_V3.4_DESIGN.md).
+
+1. **Token-at-rest AES-256-GCM wrapping** — nový `TokenCrypto.java` s
+   PBKDF2-HMAC-SHA256 KDF (100k iterations) derivovaný z robot serial +
+   paired-at timestamp. Token uložený v Polyscope DataModel je odteraz
+   ciphertext `v1.<b64(nonce)>.<b64(ct)>`, nie plaintext. URCap reinstall =
+   key mismatch = operátor musí re-pair-nuť (safe failure).
+2. **TLS cert pinning scaffold** — nový `CertPinner.java` pripravený na
+   pinning Let's Encrypt intermediate CA fingerprintov. **V3.5.0 defaultne
+   bypass-uje** (rolluje system CA bundle, ako v3.4.0), pretože skutočné
+   SHA-256 fingerprinty sú placeholder hodnoty a potrebujú overiť pred
+   produkciou. Operátor zapne cez `DEV_BYPASS_CERT_PINNING=false` v
+   `/root/.urcap-vnc.conf` keď overí fingerprinty.
+3. **Dashboard command poll loop** — nový `DashboardCommandPoller.java` polluje
+   `GET /api/agent/commands` každých 5 s, dispatch-uje na:
+   - `dashboard_power_on` / `dashboard_brake_release` / `dashboard_safetymode`
+     — cez Dashboard Server :29999 (`power on`, `brake release`, `safetymode normal`)
+   - `program_load` (args: `program_name`) — `load <name>.urp`
+   - `program_play` / `program_pause` / `program_stop` — priame verb-y
+   - `set_vnc_password` (args: `password`) — zapíše do DataModel + reštartuje
+     x11vnc daemon → nové heslo je aktívne do 30 s
+   - `io_set_digital_out` — **scoped do v3.6** (potrebuje Primary Interface
+     URScript, nie Dashboard Server), zatiaľ vráti 501/unimplemented ack
+   Každý príkaz PATCH-uje naspäť portal s `status=completed|failed` + výstupom.
+4. **Heartbeat teraz posiela `vncPasswordHash`** — SHA-256 aktuálneho VNC hesla
+   (nikdy plaintext). Portal v3.5 to porovnáva proti set-u známych slabých
+   hashov (`easybot`, `stimba.1`, `12345678`, `password`, `admin`, `ixon`,
+   `1234`) a v `/devices/[id]` + dashboarde zobrazuje červené upozornenie.
+   Operátor stlačí "Rotovať VNC heslo" na portali → enqueue `set_vnc_password`
+   command → URCap aplikuje → portal vidí nový hash → flag sa zmaže.
+5. **Backward compat:** v3.4.0 deployments s plaintext tokenom v DataModel
+   fungujú ďalej (nerozoznané ako `v1.` prefix → URCap číta ako plaintext).
+   Pri prvom unpair/re-pair cez v3.5 sa prepne na wrapped.
+
+**Čo ešte nie je v 3.5.0 (v3.6+ scope):**
+- `io_set_digital_out` execution (Primary Interface URScript path)
+- `/api/agent/metrics/ingest` RTDE ingest (poses, forces, temps, currents)
+- QR scanner v URCap UI (stále iba typed input)
+- `CertPinner` s reálnymi LE intermediate fingerprintmi — potrebuje dev-side
+  verifikáciu pred default-enable
+
+**Release process:** rovnaký ako v3.3.1 / v3.4.0 — CI build → GitHub Release
+so .urcap artefaktom + SHA-256. Jeden commit do repo = jeden artefakt.
+Žiadny dev build na strane operátora.
+
 ### v3.4.0 — 2026-04-21 (portal pairing + heartbeat)
 
 Prvá verzia URCap-u, ktorá hovorí s `portal.stimba.sk` priamo — nie iba x11vnc
@@ -215,7 +266,7 @@ disciplínu:
 2. **GitHub Release v3.3.1** s pripojeným `.urcap` artefaktom, SHA-256 checksum
    a changelog diffom — download bez GH login.
 3. **README header osvieženy** na 3.3.1 + URCap API 1.16.0 + dátum 2026-04-21.
-4. **Inštalačné pokyny** používajú `stimba-vnc-server-3.4.0.urcap`.
+4. **Inštalačné pokyny** používajú `stimba-vnc-server-3.5.0.urcap`.
 
 ### v3.3.0 — 2026-04-20 (URCap API 1.16.0 + virtual keyboard fix, vlastný tag nikdy nedostal)
 
@@ -407,11 +458,11 @@ Profil `-Premote` urobí:
 ## Manuálny deploy (bez Mavenu)
 
 Artefakt v dist adresári:
-`dist/stimba-vnc-server-3.4.0.urcap` (81 145 B, SHA-256 `cd9aacbd975735e78c3686b02c608dc16374a053364415e19974c57589f49ac1`).
+`dist/stimba-vnc-server-3.5.0.urcap` (81 145 B, SHA-256 `cd9aacbd975735e78c3686b02c608dc16374a053364415e19974c57589f49ac1`).
 
 ### USB inštalácia (bez SSH)
 
-1. Skopíruj `stimba-vnc-server-3.4.0.urcap` na USB kľúč (FAT32/exFAT).
+1. Skopíruj `stimba-vnc-server-3.5.0.urcap` na USB kľúč (FAT32/exFAT).
 2. Na Polyscope teach pendante: **Hamburger menu → Settings → System → URCaps**.
 3. **+ (Install)** → vyber súbor z USB → **Open**.
 4. Polyscope si vyžiada **Restart** — potvrď.
@@ -426,7 +477,7 @@ Artefakt v dist adresári:
 #    (Polyscope → Hamburger → Settings → Password → Admin)
 
 # 1) copy na robot (použiť NOVÉ silné heslo, nie easybot)
-scp dist/stimba-vnc-server-3.4.0.urcap root@192.168.0.1:/root/.urcaps/
+scp dist/stimba-vnc-server-3.5.0.urcap root@192.168.0.1:/root/.urcaps/
 
 # 2) (ak máš staršiu verziu) odstráň ju
 ssh root@192.168.0.1 "rm -f /root/.urcaps/stimba-vnc-server-2.*.urcap"
