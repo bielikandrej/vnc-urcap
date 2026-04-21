@@ -1,0 +1,79 @@
+<!--
+  STIMBA VNC URCapX Installation node (v3.9 scaffold).
+  Apple-style: grouped sections, rounded corners, typography hierarchy,
+  subtle borders not shadows.
+-->
+<div class="stimba-root">
+  <header class="stimba-header">
+    <div class="stimba-title">STIMBA VNC + Portal</div>
+    <div class="stimba-subtitle">Agent: {{ agentVersion }}</div>
+  </header>
+
+  <!-- Portal pairing card -->
+  <section class="stimba-card">
+    <header>
+      <h3>Portal pairing</h3>
+      <span
+        class="stimba-pill"
+        [class.stimba-pill--ok]="paired"
+        [class.stimba-pill--warn]="!paired"
+      >
+        {{ portalStatus }}
+      </span>
+    </header>
+    <ng-container *ngIf="!paired">
+      <ur-input
+        label="Claim code"
+        placeholder="STB-XXXX-XXXX"
+        [(ngModel)]="claimCode"
+      ></ur-input>
+      <ur-button variant="primary" (click)="pair()">Spáruj s portálom</ur-button>
+      <p class="stimba-hint">
+        Kód vygeneruješ v portal.stimba.sk → Devices → + New → Generate claim code.
+        Platnosť 24 h, single-use.
+      </p>
+    </ng-container>
+    <ng-container *ngIf="paired">
+      <ur-button variant="secondary" (click)="unpair()">Odpáruj</ur-button>
+    </ng-container>
+  </section>
+
+  <!-- VNC config card -->
+  <section class="stimba-card">
+    <header>
+      <h3>VNC server</h3>
+    </header>
+    <div class="stimba-row">
+      <span>Enabled</span>
+      <ur-toggle [(ngModel)]="vnc.enabled"></ur-toggle>
+    </div>
+    <div class="stimba-row">
+      <span>Port</span>
+      <ur-input-number [(ngModel)]="vnc.port" min="5900" max="5950"></ur-input-number>
+    </div>
+    <div class="stimba-row">
+      <span>Heslo</span>
+      <code>{{ vnc.passwordMasked }}</code>
+      <ur-button variant="secondary" size="small" (click)="rotateVncPassword()">
+        Rotovať
+      </ur-button>
+    </div>
+    <div class="stimba-row">
+      <span>View-only</span>
+      <ur-toggle [(ngModel)]="vnc.viewOnly"></ur-toggle>
+    </div>
+  </section>
+
+  <!-- Advanced (collapsed by default) -->
+  <ur-collapsible label="Pokročilé (rarely-changed)">
+    <div class="stimba-row">
+      <span>Autostart</span>
+      <ur-toggle [(ngModel)]="vnc.autostart"></ur-toggle>
+    </div>
+    <!-- TLS, idle timeout, max clients… (v3.10 impl) -->
+  </ur-collapsible>
+
+  <footer class="stimba-footer">
+    STIMBA Platform v1.2 · PolyScope X scaffold (v3.9)
+  </footer>
+</div>

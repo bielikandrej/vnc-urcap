@@ -4,11 +4,17 @@
 ktorý spustí `x11vnc` server pripojený na Polyscope DISPLAY :0. Umožňuje vzdialený
 náhľad + ovládanie robotickej obrazovky cez IXON Cloud VNC tunel (port 5900).
 
-**Verzia:** 3.8.0 (current prod, 2026-04-21 — cert pin enforcement flip, real LE fingerprints R10-R14 + E5-E9)
+**Verzia:** 3.9.0 (current prod, 2026-04-21 — Installation view polish + Polyscope X scaffold)
 **URCap API:** 1.16.0 (Polyscope 5.18+ LTS, validated on PS 5.25.1 per UR support 2026-04-20)
 **Autor:** Andrej Bielik — STIMBA, s. r. o.
 **Dátum:** 2026-04-21
-**Artefakt:** `vnc-server-3.8.0.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.8.0](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.8.0).
+**Artefakt:** `vnc-server-3.9.0.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.9.0](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.9.0).
+
+### v3.9.0 (2026-04-21) — Installation view polish + PolyScope X scaffold
+
+- **`VncInstallationNodeView.java` polish** — section titles + "Pokročilé" JPanel s collapse (TLS, idle timeout, max clients), cleaner spacing, consistent label widths. Swing limitations = nemôžeme si plniť Apple-style dizajn ako web, ale typography + grouping pomôžu operátorovi ktorý vidí UI po prvý krát.
+- **`psx/` scaffold** — minimum viable Angular + TypeScript URCapX project pre PolyScope X kontroléry. Obsahuje `manifest.yaml`, `package.json` s @universal-robots/contribution-api deps, `app.module.ts`, `InstallationNodeComponent` s mirror-ed pairing flow. Nebuildené, nereleas-ed — v3.10 doplní build pipeline + backend container.
+- **`psx/docs/URCAPX_ARCHITECTURE.md`** — feature parity matrix PS5 vs PSX, migration cesta, side-by-side "movej" dispatch flow, dual-build GHA návrh pre v3.10+, otvorené otázky pre UR developer program.
 
 ### v3.8.0 (2026-04-21) — Cert pin enforcement flip
 

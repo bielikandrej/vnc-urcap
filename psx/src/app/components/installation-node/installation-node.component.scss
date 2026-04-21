@@ -1,0 +1,95 @@
+/* STIMBA VNC URCapX — Apple-style tokens, scoped to the installation node.
+   PolyScope X host already supplies a design system; these are additions
+   only for our branded surfaces. */
+:host {
+  display: block;
+  padding: 16px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter",
+    system-ui, sans-serif;
+  color: var(--color-text, #1d1d1f);
+}
+
+.stimba-header {
+  margin-bottom: 16px;
+
+  .stimba-title {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .stimba-subtitle {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--color-text-secondary, #6b7a85);
+  }
+}
+
+.stimba-card {
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8ec);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+
+    h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 0;
+    }
+  }
+
+  .stimba-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    font-size: 13px;
+
+    code {
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 12px;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: var(--color-surface-secondary, #f4f6f8);
+    }
+  }
+}
+
+.stimba-pill {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-surface-secondary, #f4f6f8);
+  color: var(--color-text-secondary, #6b7a85);
+
+  &--ok {
+    background: #d4f5e2;
+    color: #0a6b33;
+  }
+  &--warn {
+    background: #fff3cc;
+    color: #7a5900;
+  }
+}
+
+.stimba-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #6b7a85);
+  line-height: 1.4;
+}
+
+.stimba-footer {
+  margin-top: 16px;
+  font-size: 11px;
+  color: var(--color-text-secondary, #6b7a85);
+  text-align: right;
+}

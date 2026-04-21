@@ -1,0 +1,33 @@
+{
+  "_comment": "STIMBA VNC URCapX — v3.9 scaffold. Not yet built end-to-end; v3.10 will wire the Angular + container build. Mirrors the scaffold produced by `npx @universal-robots/urcap-init` per https://docs.universal-robots.com/PolyScopeX_SDK_Documentation/.",
+  "name": "stimba-vnc-server-urcapx",
+  "version": "3.9.0",
+  "description": "STIMBA VNC Server URCap for PolyScope X",
+  "private": true,
+  "scripts": {
+    "build": "urcap-build",
+    "build:frontend": "ng build",
+    "start": "urcap-dev",
+    "test": "echo '(v3.9 scaffold — no tests yet)'"
+  },
+  "dependencies": {
+    "@angular/common": "^17.0.0",
+    "@angular/compiler": "^17.0.0",
+    "@angular/core": "^17.0.0",
+    "@angular/forms": "^17.0.0",
+    "@angular/platform-browser": "^17.0.0",
+    "@angular/platform-browser-dynamic": "^17.0.0",
+    "@universal-robots/contribution-api": "^0.19.0",
+    "@universal-robots/ui-angular-components": "^0.19.0",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.6.0",
+    "zone.js": "~0.14.0"
+  },
+  "devDependencies": {
+    "@angular-devkit/build-angular": "^17.0.0",
+    "@angular/cli": "^17.0.0",
+    "@angular/compiler-cli": "^17.0.0",
+    "@universal-robots/urcap-cli": "^0.19.0",
+    "typescript": "~5.2.0"
+  }
+}

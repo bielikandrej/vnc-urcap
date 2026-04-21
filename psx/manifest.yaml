@@ -1,0 +1,46 @@
+# URCapX manifest (v3.9 scaffold).
+# Schema follows PolyScope X SDK 0.19 documentation:
+#   https://docs.universal-robots.com/PolyScopeX_SDK_Documentation/build/SDK-v0.19/UserGuide.html
+
+id: sk.stimba.vnc-server
+name: STIMBA VNC Server
+vendor: STIMBA, s. r. o.
+version: 3.9.0
+urcapXMinVersion: "0.19"
+description: >
+  x11vnc daemon + portal.stimba.sk integration for PolyScope X.
+  Mirror of the PS5 URCap with portal pairing, heartbeat, AI command
+  dispatch, RTDE telemetry (planned v3.10), and URScript execution via
+  Primary Interface :30001.
+license: Proprietary
+
+# Contributions to register with PolyScope X
+contributions:
+  - type: installation-node
+    id: vnc-installation
+    frontend:
+      module: src/app/components/installation-node/installation-node.module
+    # backend container is optional — for v3.9 scaffold we skip it; v3.10
+    # will add a Python sidecar that mirrors our Java PrimaryInterfaceClient +
+    # RtdeReader when we need features Angular alone can't provide.
+
+  # - type: program-node  (v3.10+)
+  #   id: vnc-urscript-send
+  #   frontend:
+  #     module: src/app/components/urscript-send-node/urscript-send-node.module
+  #   behaviorWorker:
+  #     module: src/app/components/urscript-send-node/urscript-send.behavior.worker
+
+# Capabilities declared to PolyScope X
+capabilities:
+  permissions:
+    # Network access to portal.stimba.sk for heartbeat / command poll.
+    - network.egress: portal.stimba.sk:443
+    # Access to UR Primary Interface (v3.10+).
+    # - network.ingress: 127.0.0.1:30001
+    # RTDE (v3.10+).
+    # - network.ingress: 127.0.0.1:30004
+
+# Compatibility envelope
+compatibility:
+  polyscopeX: ">=2026.1"
