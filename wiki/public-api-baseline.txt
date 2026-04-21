@@ -5,6 +5,23 @@
 sk.stimba.urcap.vnc.impl.Activator :: public <init>() -> void
 sk.stimba.urcap.vnc.impl.Activator :: public start(BundleContext) -> void
 sk.stimba.urcap.vnc.impl.Activator :: public stop(BundleContext) -> void
+sk.stimba.urcap.vnc.impl.DashboardClient :: public <init>() -> void
+sk.stimba.urcap.vnc.impl.DashboardClient :: public <init>(String, int) -> void
+sk.stimba.urcap.vnc.impl.DashboardClient :: public snapshot() -> DashboardClient$Snapshot
+sk.stimba.urcap.vnc.impl.PortalClient :: package static <clinit>() -> void
+sk.stimba.urcap.vnc.impl.PortalClient :: package static extractLiteral(String, String) -> String
+sk.stimba.urcap.vnc.impl.PortalClient :: package static extractNumber(String, String) -> String
+sk.stimba.urcap.vnc.impl.PortalClient :: package static extractString(String, String) -> String
+sk.stimba.urcap.vnc.impl.PortalClient :: package static toJson(Map) -> String
+sk.stimba.urcap.vnc.impl.PortalClient :: public <init>(String) -> void
+sk.stimba.urcap.vnc.impl.PortalClient :: public claim(String, Map) -> PortalClient$ClaimResponse
+sk.stimba.urcap.vnc.impl.PortalClient :: public heartbeat(String, String, String) -> boolean
+sk.stimba.urcap.vnc.impl.PortalClient :: public unpair(String, String) -> boolean
+sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: package static <clinit>() -> void
+sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public <init>(PortalClient, DashboardClient, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$StatusSink) -> void
+sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public isRunning() -> boolean
+sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public start() -> void
+sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public stop() -> void
 sk.stimba.urcap.vnc.impl.VncDaemonService :: public <init>() -> void
 sk.stimba.urcap.vnc.impl.VncDaemonService :: public getDaemon() -> DaemonContribution
 sk.stimba.urcap.vnc.impl.VncDaemonService :: public getExecutable() -> URL
@@ -14,7 +31,6 @@ sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public <init>(Instal
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public addTempAllowlist(String, int, String) -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public applyConfig() -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public closeView() -> void
-sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public static estimatePasswordStrength(String) -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public generateScript(ScriptWriter) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getCustomerLabel() -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getDaemonStateLabel() -> String
@@ -23,14 +39,20 @@ sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getIxrouterIp
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getMaxClients() -> int
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getPassword() -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getPort() -> int
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getPortalDeviceId() -> String
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getPortalDeviceIdMasked() -> String
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getPortalLastStatus() -> String
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getPortalPairedAt() -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getTlsFingerprint() -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isAutostart() -> boolean
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isDefined() -> boolean
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isPaired() -> boolean
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isRequireStrongPwd() -> boolean
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isTlsEnabled() -> boolean
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isViewOnly() -> boolean
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public listTempAllowlist() -> List
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public openView() -> void
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public pairWithCode(String, Runnable) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public pollHealth() -> Map
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public runDiagBundle() -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setAutostart(boolean) -> void
@@ -44,9 +66,11 @@ sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setRequireStr
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setTlsEnabled(boolean) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setViewOnly(boolean) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public startDaemon() -> void
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public static estimatePasswordStrength(String) -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public stopDaemon() -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public tailLog(int) -> List
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public testConnection() -> String
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public unpair() -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public writeConfigFile() -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeService :: public <init>(VncDaemonService) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeService :: public configureContribution(ContributionConfiguration) -> void
@@ -70,6 +94,9 @@ sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updateMaxClients(int)
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updatePassword(String) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updatePasswordStrength(String) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updatePort(int) -> void
+sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updatePortalPaired(boolean, String, String) -> void
+sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updatePortalPairingResult(boolean, String) -> void
+sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updatePortalStatus(String) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updateRequireStrongPwd(boolean) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updateStatus(String, boolean) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updateTlsEnabled(boolean) -> void
