@@ -32,7 +32,7 @@ public final class PortalClient {
     public static final String DEFAULT_PORTAL_URL = "https://portal.stimba.sk";
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS    = 15_000;
-    public static final String URCAP_VERSION    = "stimba-vnc-urcap/3.6.0";
+    public static final String URCAP_VERSION    = "stimba-vnc-urcap/3.7.0";
 
     private final String portalUrl;
 
@@ -358,11 +358,57 @@ public final class PortalClient {
             return;
         }
         if (v instanceof Number) {
+            // Handle NaN/Infinity — JSON has no representation, emit null.
+            double d = ((Number) v).doubleValue();
+            if (Double.isNaN(d) || Double.isInfinite(d)) { sb.append("null"); return; }
             sb.append(((Number) v).toString());
             return;
         }
         if (v instanceof Map) {
             sb.append(toJson((Map<String, Object>) v));
+            return;
+        }
+        // v3.7.0 — arrays + iterables (for RTDE telemetry in heartbeat payload)
+        if (v instanceof double[]) {
+            double[] arr = (double[]) v;
+            sb.append('[');
+            for (int i = 0; i < arr.length; i++) {
+                if (i > 0) sb.append(',');
+                if (Double.isNaN(arr[i]) || Double.isInfinite(arr[i])) sb.append("null");
+                else sb.append(arr[i]);
+            }
+            sb.append(']');
+            return;
+        }
+        if (v instanceof int[]) {
+            int[] arr = (int[]) v;
+            sb.append('[');
+            for (int i = 0; i < arr.length; i++) {
+                if (i > 0) sb.append(',');
+                sb.append(arr[i]);
+            }
+            sb.append(']');
+            return;
+        }
+        if (v instanceof long[]) {
+            long[] arr = (long[]) v;
+            sb.append('[');
+            for (int i = 0; i < arr.length; i++) {
+                if (i > 0) sb.append(',');
+                sb.append(arr[i]);
+            }
+            sb.append(']');
+            return;
+        }
+        if (v instanceof Iterable) {
+            sb.append('[');
+            boolean first = true;
+            for (Object e : (Iterable<?>) v) {
+                if (!first) sb.append(',');
+                first = false;
+                appendValue(sb, e);
+            }
+            sb.append(']');
             return;
         }
         // Default: string

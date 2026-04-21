@@ -4,11 +4,21 @@
 ktorý spustí `x11vnc` server pripojený na Polyscope DISPLAY :0. Umožňuje vzdialený
 náhľad + ovládanie robotickej obrazovky cez IXON Cloud VNC tunel (port 5900).
 
-**Verzia:** 3.6.0 (current prod, 2026-04-21 — Primary Interface + urscript_send + io_set_digital_out)
+**Verzia:** 3.7.0 (current prod, 2026-04-21 — RTDE telemetry + set_tool_digital_out + program_list + panic_halt)
 **URCap API:** 1.16.0 (Polyscope 5.18+ LTS, validated on PS 5.25.1 per UR support 2026-04-20)
 **Autor:** Andrej Bielik — STIMBA, s. r. o.
 **Dátum:** 2026-04-21
-**Artefakt:** `dist/stimba-vnc-server-3.6.0.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.6.0](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.6.0).
+**Artefakt:** `vnc-server-3.7.0.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.7.0](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.7.0).
+
+### v3.7.0 (2026-04-21) — RTDE telemetry + new tools
+
+- **`RtdeReader.java`** — read-only RTDE client na TCP 30004. Poll thread s exponential back-off (1–30 s), kešuje posledný sample (TCP pose v mm, joint rad, TCP force, digital I/O 8-bit mask, robot/safety mode). Stale detekcia (> 5 s bez dát → `connected=false`).
+- **Heartbeat enrichment** — `PortalHeartbeatRunner` teraz v každom 30 s ticku posiela `tcpPoseMm`, `jointPositionsRad`, `tcpForceN`, `digitalInputs`, `digitalOutputs` + `capabilities` mapu. Portal `/devices/:id/brain` ich vykresľuje v live-state karte.
+- **Nové tools v dispatcheri:**
+  - `set_tool_digital_out(pin 0..1, value)` — tool flange DO cez Primary Interface URScript.
+  - `program_list()` — číta `/programs/*.urp[x]` a vracia `{ programs: [name, …], count }`.
+  - `panic_halt()` — best-effort kombinácia `stop` + `safetymode normal` cez Dashboard.
+- **PortalClient.toJson** — rozšírené o `double[]` / `int[]` / `long[]` / `Iterable` + NaN/Infinity guard (potrebné pre telemetry arrays).
 
 ---
 

@@ -149,6 +149,9 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
     // v3.6.0 — Primary Interface client for urscript_send + IO via URScript
     private final PrimaryInterfaceClient primaryClient = new PrimaryInterfaceClient();
 
+    // v3.7.0 — RTDE reader for live TCP pose / joint / force / I/O telemetry
+    private RtdeReader rtdeReader;
+
     public VncInstallationNodeContribution(InstallationAPIProvider apiProvider,
                                            VncInstallationNodeView view,
                                            DataModel model,
@@ -881,6 +884,18 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
 
     private void startHeartbeatIfPaired() {
         if (!isPaired()) return;
+        // v3.7.0 — RTDE reader best-effort. If it fails to start (older CB3
+        // without RTDE, firewall), the URCap still works at the v3.6 feature
+        // set; the heartbeat reports rtdeConnected=false and the Brain page
+        // shows "sensor gone".
+        if (rtdeReader == null) {
+            try {
+                rtdeReader = new RtdeReader();
+                rtdeReader.start();
+            } catch (Throwable t) {
+                rtdeReader = null;
+            }
+        }
         if (portalHeartbeat == null) {
             portalHeartbeat = new PortalHeartbeatRunner(
                     portalClient,
@@ -893,6 +908,7 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
                         EventQueue.invokeLater(() -> view.updatePortalStatus(status));
                     }
             );
+            portalHeartbeat.attachRtde(rtdeReader);
             portalHeartbeat.start();
         }
         if (commandPoller == null) {
@@ -915,6 +931,10 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
         if (commandPoller != null) {
             commandPoller.stop();
             commandPoller = null;
+        }
+        if (rtdeReader != null) {
+            rtdeReader.stop();
+            rtdeReader = null;
         }
     }
 
@@ -1020,6 +1040,83 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
                         return new DashboardCommandPoller.Ack(false, null,
                                 "Primary Interface unreachable: " + ioe.getMessage());
                     }
+                }
+                case "set_tool_digital_out": {
+                    // v3.7.0 — tool flange DO (indices 0..1).
+                    String idxStr = extractArgString(argsJson, "pin");
+                    if (idxStr == null) idxStr = extractArgString(argsJson, "index");
+                    String valStr = extractArgString(argsJson, "value");
+                    Integer idx = null;
+                    try { idx = idxStr == null ? null : Integer.parseInt(idxStr.trim()); } catch (Throwable ignored) {}
+                    Boolean val = null;
+                    if (valStr != null) {
+                        String v = valStr.trim().toLowerCase();
+                        if ("true".equals(v) || "1".equals(v))  val = Boolean.TRUE;
+                        if ("false".equals(v) || "0".equals(v)) val = Boolean.FALSE;
+                    }
+                    if (idx == null || idx < 0 || idx > 1) {
+                        return new DashboardCommandPoller.Ack(false, null, "set_tool_digital_out: index must be 0..1");
+                    }
+                    if (val == null) {
+                        return new DashboardCommandPoller.Ack(false, null, "set_tool_digital_out: value must be true|false");
+                    }
+                    try {
+                        primaryClient.sendOneLiner("set_tool_digital_out(" + idx + ", " + (val ? "True" : "False") + ")");
+                        return new DashboardCommandPoller.Ack(true,
+                                "TDO" + idx + " = " + val, null);
+                    } catch (IOException ioe) {
+                        return new DashboardCommandPoller.Ack(false, null,
+                                "Primary Interface unreachable: " + ioe.getMessage());
+                    }
+                }
+                case "program_list": {
+                    // v3.7.0 — list .urp / .urpx programs on the controller.
+                    // Uses Dashboard Server 'programState' is too narrow; we read the
+                    // Polyscope programs directory directly since URCap runs on the
+                    // controller with filesystem access.
+                    java.io.File dir = new java.io.File("/programs");
+                    if (!dir.exists() || !dir.isDirectory()) {
+                        // Fallback for URSim home install
+                        dir = new java.io.File(System.getProperty("user.home", "") + "/ursim/programs");
+                    }
+                    if (!dir.exists() || !dir.isDirectory()) {
+                        return new DashboardCommandPoller.Ack(false, null,
+                                "program_list: /programs not found on this controller");
+                    }
+                    java.io.File[] files = dir.listFiles((d, name) ->
+                            name.toLowerCase().endsWith(".urp") || name.toLowerCase().endsWith(".urpx"));
+                    if (files == null) files = new java.io.File[0];
+                    StringBuilder sb = new StringBuilder("{\"programs\":[");
+                    for (int i = 0; i < files.length; i++) {
+                        if (i > 0) sb.append(",");
+                        String nm = files[i].getName();
+                        int dot = nm.lastIndexOf('.');
+                        if (dot > 0) nm = nm.substring(0, dot);
+                        sb.append("\"").append(nm.replace("\"", "")).append("\"");
+                    }
+                    sb.append("],\"count\":").append(files.length).append("}");
+                    return new DashboardCommandPoller.Ack(true, sb.toString(), null);
+                }
+                case "panic_halt": {
+                    // v3.7.0 — composite kill-switch. The portal /api/devices/:id/panic
+                    // already enqueues two discrete Dashboard commands
+                    // (program_stop + dashboard_safetymode), so this case is only
+                    // hit by callers that send panic_halt directly (future MCP /
+                    // SDK). Reply success after best-effort sending.
+                    StringBuilder out = new StringBuilder();
+                    try {
+                        String r1 = dashboardClient.execute("stop");
+                        out.append("stop: ").append(r1 == null ? "" : r1.trim()).append("; ");
+                    } catch (Throwable t) {
+                        out.append("stop: ").append(t.getClass().getSimpleName()).append("; ");
+                    }
+                    try {
+                        String r2 = dashboardClient.execute("safetymode normal");
+                        out.append("safetymode: ").append(r2 == null ? "" : r2.trim());
+                    } catch (Throwable t) {
+                        out.append("safetymode: ").append(t.getClass().getSimpleName());
+                    }
+                    return new DashboardCommandPoller.Ack(true, out.toString(), null);
                 }
                 default:
                     return new DashboardCommandPoller.Ack(false, null, "unknown tool: " + toolName);

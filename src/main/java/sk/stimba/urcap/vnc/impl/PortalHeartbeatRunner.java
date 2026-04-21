@@ -33,6 +33,9 @@ public final class PortalHeartbeatRunner {
     private final StatusSink statusSink;
     private final long startedAtMs = System.currentTimeMillis();
     private final AtomicBoolean running = new AtomicBoolean(false);
+    // v3.7.0 — optional RTDE reader. When set, its latest sample is attached
+    // to every heartbeat payload.
+    private volatile RtdeReader rtde;
 
     private ScheduledExecutorService exec;
 
@@ -94,6 +97,15 @@ public final class PortalHeartbeatRunner {
         return running.get();
     }
 
+    /**
+     * Attach an {@link RtdeReader} so TCP pose / force / I/O are included in
+     * every heartbeat. Pass null to detach (used when the reader fails to
+     * start on a particular PolyScope build).
+     */
+    public void attachRtde(RtdeReader r) {
+        this.rtde = r;
+    }
+
     private void tick() {
         String token = tokenSupplier.get();
         String deviceId = deviceIdSupplier.get();
@@ -130,7 +142,38 @@ public final class PortalHeartbeatRunner {
         payload.put("safetyStatus", snap.safetyMode);
         payload.put("loadedProgram", snap.loadedProgram);
         payload.put("programRunning", snap.programRunning);
-        payload.put("rtdeConnected", false);
+
+        // v3.7.0 — RTDE telemetry, if available.
+        boolean rtdeConnected = false;
+        RtdeReader.Sample s = rtde != null ? rtde.latest() : null;
+        if (s != null) {
+            rtdeConnected = rtde.connected();
+            // RTDE gives us TCP pose in metres; the portal contract uses
+            // millimetres for the first 3 elements. Convert here so the UI
+            // doesn't have to special-case units.
+            double[] tcpMm = new double[] {
+                    s.tcpPose[0] * 1000.0,
+                    s.tcpPose[1] * 1000.0,
+                    s.tcpPose[2] * 1000.0,
+                    s.tcpPose[3],
+                    s.tcpPose[4],
+                    s.tcpPose[5]
+            };
+            payload.put("tcpPoseMm", tcpMm);
+            payload.put("jointPositionsRad", s.q);
+            payload.put("tcpForceN", s.tcpForce);
+            // Expand the two 64-bit masks to 8-element 0/1 arrays (portal's
+            // IoBitmap renders them directly).
+            int[] di = new int[8];
+            int[] doo = new int[8];
+            for (int i = 0; i < 8; i++) {
+                di[i]  = (int) ((s.digitalIn  >> i) & 1L);
+                doo[i] = (int) ((s.digitalOut >> i) & 1L);
+            }
+            payload.put("digitalInputs", di);
+            payload.put("digitalOutputs", doo);
+        }
+        payload.put("rtdeConnected", rtdeConnected);
         payload.put("dashboardConnected", snap.connected);
 
         LinkedHashMap<String, Object> queue = new LinkedHashMap<>();
@@ -147,6 +190,17 @@ public final class PortalHeartbeatRunner {
         if (hash != null && !hash.isEmpty()) {
             payload.put("vncPasswordHash", hash);
         }
+
+        // v3.7.0 — advertise tool capabilities so the portal UI can hide
+        // buttons this URCap version doesn't support.
+        LinkedHashMap<String, Object> caps = new LinkedHashMap<>();
+        caps.put("urscript_send", true);
+        caps.put("io_set_digital_out", true);
+        caps.put("set_tool_digital_out", true);
+        caps.put("program_list", true);
+        caps.put("panic_halt", true);
+        caps.put("rtde", rtde != null);
+        payload.put("capabilities", caps);
 
         return PortalClient.toJson(payload);
     }

@@ -19,22 +19,23 @@ sk.stimba.urcap.vnc.impl.DashboardCommandPoller :: public isRunning() -> boolean
 sk.stimba.urcap.vnc.impl.DashboardCommandPoller :: public start() -> void
 sk.stimba.urcap.vnc.impl.DashboardCommandPoller :: public stop() -> void
 sk.stimba.urcap.vnc.impl.PortalClient :: package static <clinit>() -> void
+sk.stimba.urcap.vnc.impl.PortalClient :: public <init>(String) -> void
+sk.stimba.urcap.vnc.impl.PortalClient :: public ackCommand(String, String, String, boolean, String, String) -> boolean
+sk.stimba.urcap.vnc.impl.PortalClient :: public claim(String, Map) -> PortalClient$ClaimResponse
 sk.stimba.urcap.vnc.impl.PortalClient :: package static extractLiteral(String, String) -> String
 sk.stimba.urcap.vnc.impl.PortalClient :: package static extractNumber(String, String) -> String
 sk.stimba.urcap.vnc.impl.PortalClient :: package static extractRawObject(String, String) -> String
 sk.stimba.urcap.vnc.impl.PortalClient :: package static extractString(String, String) -> String
 sk.stimba.urcap.vnc.impl.PortalClient :: package static findMatchingBracket(String, int) -> int
-sk.stimba.urcap.vnc.impl.PortalClient :: package static splitTopLevelObjects(String) -> List
-sk.stimba.urcap.vnc.impl.PortalClient :: package static toJson(Map) -> String
-sk.stimba.urcap.vnc.impl.PortalClient :: public <init>(String) -> void
-sk.stimba.urcap.vnc.impl.PortalClient :: public ackCommand(String, String, String, boolean, String, String) -> boolean
-sk.stimba.urcap.vnc.impl.PortalClient :: public claim(String, Map) -> PortalClient$ClaimResponse
 sk.stimba.urcap.vnc.impl.PortalClient :: public heartbeat(String, String, String) -> boolean
 sk.stimba.urcap.vnc.impl.PortalClient :: public pollCommands(String, String) -> List
+sk.stimba.urcap.vnc.impl.PortalClient :: package static splitTopLevelObjects(String) -> List
+sk.stimba.urcap.vnc.impl.PortalClient :: package static toJson(Map) -> String
 sk.stimba.urcap.vnc.impl.PortalClient :: public unpair(String, String) -> boolean
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: package static <clinit>() -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public <init>(PortalClient, DashboardClient, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$StatusSink) -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public <init>(PortalClient, DashboardClient, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$StatusSink) -> void
+sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public attachRtde(RtdeReader) -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public isRunning() -> boolean
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public start() -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public stop() -> void
@@ -43,6 +44,12 @@ sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public <init>() -> void
 sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public <init>(String, int) -> void
 sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public sendOneLiner(String) -> void
 sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public sendScript(String) -> void
+sk.stimba.urcap.vnc.impl.RtdeReader :: package static <clinit>() -> void
+sk.stimba.urcap.vnc.impl.RtdeReader :: public <init>() -> void
+sk.stimba.urcap.vnc.impl.RtdeReader :: public connected() -> boolean
+sk.stimba.urcap.vnc.impl.RtdeReader :: public latest() -> RtdeReader$Sample
+sk.stimba.urcap.vnc.impl.RtdeReader :: public start() -> void
+sk.stimba.urcap.vnc.impl.RtdeReader :: public stop() -> void
 sk.stimba.urcap.vnc.impl.TokenCrypto :: package static <clinit>() -> void
 sk.stimba.urcap.vnc.impl.TokenCrypto :: public <init>(String, String) -> void
 sk.stimba.urcap.vnc.impl.TokenCrypto :: public static ephemeral() -> TokenCrypto
@@ -58,6 +65,7 @@ sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public <init>(Instal
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public addTempAllowlist(String, int, String) -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public applyConfig() -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public closeView() -> void
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public static estimatePasswordStrength(String) -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public generateScript(ScriptWriter) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getCustomerLabel() -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getDaemonStateLabel() -> String
@@ -93,7 +101,6 @@ sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setRequireStr
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setTlsEnabled(boolean) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setViewOnly(boolean) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public startDaemon() -> void
-sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public static estimatePasswordStrength(String) -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public stopDaemon() -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public tailLog(int) -> List
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public testConnection() -> String
