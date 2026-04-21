@@ -4,11 +4,11 @@
 ktorý spustí `x11vnc` server pripojený na Polyscope DISPLAY :0. Umožňuje vzdialený
 náhľad + ovládanie robotickej obrazovky cez IXON Cloud VNC tunel (port 5900).
 
-**Verzia:** 3.0.0 (current prod, Sprint 3 shipped 2026-04-17)
-**URCap API:** 1.3.0 (pokrýva Polyscope 5.0 → 5.26 LTS, január 2026)
+**Verzia:** 3.3.1 (current prod, 2026-04-21 — release cleanup on top of v3.3.0 KeyboardInputFactory fixes)
+**URCap API:** 1.16.0 (Polyscope 5.18+ LTS, validated on PS 5.25.1 per UR support 2026-04-20)
 **Autor:** Andrej Bielik — STIMBA, s. r. o.
-**Dátum:** 2026-04-17
-**Artefakt:** `dist/stimba-vnc-server-3.0.0.urcap` (81 145 B, SHA-256 `cd9aacbd975735e78c3686b02c608dc16374a053364415e19974c57589f49ac1`)
+**Dátum:** 2026-04-21
+**Artefakt:** `dist/stimba-vnc-server-3.3.1.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.3.1](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.3.1).
 
 ---
 
@@ -163,6 +163,35 @@ regulovanom prostredí (NIS2, TISAX) je lepšie upgrade-núť klienta.
 ---
 
 ## Changelog
+
+### v3.3.1 — 2026-04-21 (release cleanup)
+
+Žiadne code zmeny oproti v3.3.0 — iba formálny tag + GitHub Release pre lifecycle
+disciplínu:
+
+1. **Tag `v3.3.1` publikovaný** (predtým žiadne tagy neboli, každá verzia sa
+   vyhľadávala cez commit SHA).
+2. **GitHub Release v3.3.1** s pripojeným `.urcap` artefaktom, SHA-256 checksum
+   a changelog diffom — download bez GH login.
+3. **README header osvieženy** na 3.3.1 + URCap API 1.16.0 + dátum 2026-04-21.
+4. **Inštalačné pokyny** používajú `stimba-vnc-server-3.3.1.urcap`.
+
+### v3.3.0 — 2026-04-20 (URCap API 1.16.0 + virtual keyboard fix, vlastný tag nikdy nedostal)
+
+1. **URCap API bump 1.3.0 → 1.16.0** — per UR support (2026-04-20). PS 5.25.1 po
+   Andrejovom `v3.2.1` install (API 1.3.0) dával "nevyskočí klávesnica po kliku".
+   1.16.0 reintrodukuje `KeyboardInputFactory` ktorý PS 5.25.x vyžaduje. 1.18.0
+   je pre PS 5.26.x-only → zostávame na 1.16.0. Ref: `reference_urcap_api_jar_embedded`.
+2. **`setKeyboardInputFactory` wiring** — `VncInstallationNodeContribution.openView()`
+   prepája `ContributionProvider.getKeyboardInputFactory()` do Swing view. Click
+   na akékoľvek `JTextField` vo VNC URCap UI teraz spusti PS on-screen klávesnicu
+   (v3.2.1 kliky boli no-op).
+3. **`KeyboardTextInput.show()` prijíma `JTextField`, nie `MouseEvent`** — hotfix
+   `9855fcf`, po inicializácii s nesprávnym typom klávesnica padala na
+   `IllegalArgumentException`. Baseline test v CI teraz pokrýva obidve signatúry.
+4. **CI regression workflow** — `.github/workflows/regress.yml` volá
+   `wiki/public-api-baseline.txt` aby chytil drifty medzi public API stubmi a
+   tým čo PS runtime reálne exposes (lesson z v3.0.0 → v3.0.4 hotfix stormu).
 
 ### v3.0.0 — 2026-04-17 (TLS + session hardening + tooltips, Sprint 3)
 
@@ -337,11 +366,11 @@ Profil `-Premote` urobí:
 ## Manuálny deploy (bez Mavenu)
 
 Artefakt v dist adresári:
-`dist/stimba-vnc-server-3.0.0.urcap` (81 145 B, SHA-256 `cd9aacbd975735e78c3686b02c608dc16374a053364415e19974c57589f49ac1`).
+`dist/stimba-vnc-server-3.3.1.urcap` (81 145 B, SHA-256 `cd9aacbd975735e78c3686b02c608dc16374a053364415e19974c57589f49ac1`).
 
 ### USB inštalácia (bez SSH)
 
-1. Skopíruj `stimba-vnc-server-3.0.0.urcap` na USB kľúč (FAT32/exFAT).
+1. Skopíruj `stimba-vnc-server-3.3.1.urcap` na USB kľúč (FAT32/exFAT).
 2. Na Polyscope teach pendante: **Hamburger menu → Settings → System → URCaps**.
 3. **+ (Install)** → vyber súbor z USB → **Open**.
 4. Polyscope si vyžiada **Restart** — potvrď.
@@ -356,7 +385,7 @@ Artefakt v dist adresári:
 #    (Polyscope → Hamburger → Settings → Password → Admin)
 
 # 1) copy na robot (použiť NOVÉ silné heslo, nie easybot)
-scp dist/stimba-vnc-server-3.0.0.urcap root@192.168.0.1:/root/.urcaps/
+scp dist/stimba-vnc-server-3.3.1.urcap root@192.168.0.1:/root/.urcaps/
 
 # 2) (ak máš staršiu verziu) odstráň ju
 ssh root@192.168.0.1 "rm -f /root/.urcaps/stimba-vnc-server-2.*.urcap"
