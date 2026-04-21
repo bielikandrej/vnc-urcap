@@ -887,10 +887,11 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
         }
     }
 
-    // --- helper: safe string get with default ---
+    // --- helper: safe string get with default (DataModel.get requires 3 args
+    //     in URCap API; we use the (key, default, class) signature) ---
     private String get(String key, String dflt) {
         try {
-            Object v = model.get(key);
+            Object v = model.get(key, dflt, String.class);
             return v == null ? dflt : v.toString();
         } catch (Throwable t) {
             return dflt;
@@ -911,16 +912,19 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
         } catch (Throwable t) { return ""; }
     }
 
-    /** Reads UR robot serial from /etc/hostname or Polyscope's known serial file if available. */
+    /** Reads UR robot serial from Polyscope's serial file if available (Java 8
+     *  compatible: Files.readString is Java 11+). */
     private static String getRobotSerialSafe() {
         try {
             Path p = Paths.get("/root/.urcontrol/serial-number.txt");
-            if (Files.exists(p)) return Files.readString(p, StandardCharsets.UTF_8).trim();
+            if (Files.exists(p)) {
+                return new String(Files.readAllBytes(p), StandardCharsets.UTF_8).trim();
+            }
         } catch (Throwable ignored) {}
         try {
             Path p = Paths.get("/etc/machine-id");
             if (Files.exists(p)) {
-                String id = Files.readString(p, StandardCharsets.UTF_8).trim();
+                String id = new String(Files.readAllBytes(p), StandardCharsets.UTF_8).trim();
                 return id.length() > 16 ? id.substring(0, 16) : id;
             }
         } catch (Throwable ignored) {}
