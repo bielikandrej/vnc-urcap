@@ -887,12 +887,11 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
         }
     }
 
-    // --- helper: safe string get with default (DataModel.get requires 3 args
-    //     in URCap API; we use the (key, default, class) signature) ---
+    // --- helper: safe string get with default (DataModel 2-arg primitive
+    //     overload — same pattern as getPort / getPassword above) ---
     private String get(String key, String dflt) {
         try {
-            Object v = model.get(key, dflt, String.class);
-            return v == null ? dflt : v.toString();
+            return model.get(key, dflt);
         } catch (Throwable t) {
             return dflt;
         }
