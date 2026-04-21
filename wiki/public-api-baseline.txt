@@ -5,23 +5,45 @@
 sk.stimba.urcap.vnc.impl.Activator :: public <init>() -> void
 sk.stimba.urcap.vnc.impl.Activator :: public start(BundleContext) -> void
 sk.stimba.urcap.vnc.impl.Activator :: public stop(BundleContext) -> void
+sk.stimba.urcap.vnc.impl.CertPinner :: package static <clinit>() -> void
+sk.stimba.urcap.vnc.impl.CertPinner :: public <init>() -> void
+sk.stimba.urcap.vnc.impl.CertPinner :: public static apply(HttpsURLConnection) -> void
+sk.stimba.urcap.vnc.impl.CertPinner :: public static isBypassActive() -> boolean
 sk.stimba.urcap.vnc.impl.DashboardClient :: public <init>() -> void
 sk.stimba.urcap.vnc.impl.DashboardClient :: public <init>(String, int) -> void
+sk.stimba.urcap.vnc.impl.DashboardClient :: public execute(String) -> String
 sk.stimba.urcap.vnc.impl.DashboardClient :: public snapshot() -> DashboardClient$Snapshot
+sk.stimba.urcap.vnc.impl.DashboardCommandPoller :: package static <clinit>() -> void
+sk.stimba.urcap.vnc.impl.DashboardCommandPoller :: public <init>(PortalClient, DashboardClient, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$Supplier, DashboardCommandPoller$CommandDispatcher) -> void
+sk.stimba.urcap.vnc.impl.DashboardCommandPoller :: public isRunning() -> boolean
+sk.stimba.urcap.vnc.impl.DashboardCommandPoller :: public start() -> void
+sk.stimba.urcap.vnc.impl.DashboardCommandPoller :: public stop() -> void
 sk.stimba.urcap.vnc.impl.PortalClient :: package static <clinit>() -> void
 sk.stimba.urcap.vnc.impl.PortalClient :: package static extractLiteral(String, String) -> String
 sk.stimba.urcap.vnc.impl.PortalClient :: package static extractNumber(String, String) -> String
+sk.stimba.urcap.vnc.impl.PortalClient :: package static extractRawObject(String, String) -> String
 sk.stimba.urcap.vnc.impl.PortalClient :: package static extractString(String, String) -> String
+sk.stimba.urcap.vnc.impl.PortalClient :: package static findMatchingBracket(String, int) -> int
+sk.stimba.urcap.vnc.impl.PortalClient :: package static splitTopLevelObjects(String) -> List
 sk.stimba.urcap.vnc.impl.PortalClient :: package static toJson(Map) -> String
 sk.stimba.urcap.vnc.impl.PortalClient :: public <init>(String) -> void
+sk.stimba.urcap.vnc.impl.PortalClient :: public ackCommand(String, String, String, boolean, String, String) -> boolean
 sk.stimba.urcap.vnc.impl.PortalClient :: public claim(String, Map) -> PortalClient$ClaimResponse
 sk.stimba.urcap.vnc.impl.PortalClient :: public heartbeat(String, String, String) -> boolean
+sk.stimba.urcap.vnc.impl.PortalClient :: public pollCommands(String, String) -> List
 sk.stimba.urcap.vnc.impl.PortalClient :: public unpair(String, String) -> boolean
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: package static <clinit>() -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public <init>(PortalClient, DashboardClient, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$StatusSink) -> void
+sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public <init>(PortalClient, DashboardClient, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$StatusSink) -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public isRunning() -> boolean
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public start() -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public stop() -> void
+sk.stimba.urcap.vnc.impl.TokenCrypto :: package static <clinit>() -> void
+sk.stimba.urcap.vnc.impl.TokenCrypto :: public <init>(String, String) -> void
+sk.stimba.urcap.vnc.impl.TokenCrypto :: public static ephemeral() -> TokenCrypto
+sk.stimba.urcap.vnc.impl.TokenCrypto :: public static sha256Hex(String) -> String
+sk.stimba.urcap.vnc.impl.TokenCrypto :: public unwrap(String) -> Optional
+sk.stimba.urcap.vnc.impl.TokenCrypto :: public wrap(String) -> String
 sk.stimba.urcap.vnc.impl.VncDaemonService :: public <init>() -> void
 sk.stimba.urcap.vnc.impl.VncDaemonService :: public getDaemon() -> DaemonContribution
 sk.stimba.urcap.vnc.impl.VncDaemonService :: public getExecutable() -> URL
