@@ -1027,12 +1027,15 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
             // Best effort — even if write failed, model update is persisted
         }
         // Bounce the daemon so x11vnc picks up the new -rfbauth password.
+        // Use stop()/start() methods directly (DaemonContribution API in this
+        // URCap stub doesn't expose setDesiredState).
         try {
-            daemonService.getDaemon().setDesiredState(
-                    com.ur.urcap.api.contribution.DaemonContribution.State.STOPPED);
-            Thread.sleep(1000);
-            daemonService.getDaemon().setDesiredState(
-                    com.ur.urcap.api.contribution.DaemonContribution.State.RUNNING);
+            DaemonContribution d = daemonService.getDaemon();
+            if (d != null) {
+                d.stop();
+                Thread.sleep(1000);
+                d.start();
+            }
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         } catch (Throwable t) {
