@@ -152,6 +152,11 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
     // v3.7.0 — RTDE reader for live TCP pose / joint / force / I/O telemetry
     private RtdeReader rtdeReader;
 
+    // v3.10.0 — auto-discovery probe (one-shot per connection) + log tailer
+    private RobotMetadataProbe metadataProbe;
+    private PolyscopeLogTailer logTailer;
+    private final InstallationAPIProvider apiProviderRef;
+
     public VncInstallationNodeContribution(InstallationAPIProvider apiProvider,
                                            VncInstallationNodeView view,
                                            DataModel model,
@@ -160,6 +165,7 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
         this.model = model;
         this.view = view;
         this.daemonService = daemonService;
+        this.apiProviderRef = apiProvider;
 
         // v3.3.0 — wire Polyscope's on-screen keyboard into the view so text-field
         // taps on the teach pendant open the PS native keyboard (JTextField alone
@@ -909,6 +915,23 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
                     }
             );
             portalHeartbeat.attachRtde(rtdeReader);
+
+            // v3.10.0 — auto-discovery probe + log tailer. Both are best-effort:
+            // if SystemAPI isn't available (degraded controller) or log files
+            // aren't readable (filesystem issue), we skip and the heartbeat
+            // continues with v3.7-level payload. No fatal path.
+            if (metadataProbe == null && apiProviderRef != null) {
+                try {
+                    metadataProbe = new RobotMetadataProbe(apiProviderRef);
+                } catch (Throwable t) { metadataProbe = null; }
+            }
+            if (logTailer == null) {
+                try {
+                    logTailer = new PolyscopeLogTailer();
+                } catch (Throwable t) { logTailer = null; }
+            }
+            portalHeartbeat.attachDiscovery(metadataProbe, logTailer);
+
             portalHeartbeat.start();
         }
         if (commandPoller == null) {

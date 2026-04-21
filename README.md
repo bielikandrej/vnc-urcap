@@ -4,11 +4,20 @@
 ktorý spustí `x11vnc` server pripojený na Polyscope DISPLAY :0. Umožňuje vzdialený
 náhľad + ovládanie robotickej obrazovky cez IXON Cloud VNC tunel (port 5900).
 
-**Verzia:** 3.9.0 (current prod, 2026-04-21 — Installation view polish + Polyscope X scaffold)
+**Verzia:** 3.10.0 (current prod, 2026-04-21 — auto-discovery + error log tail + long-poll + MCP portal companion)
 **URCap API:** 1.16.0 (Polyscope 5.18+ LTS, validated on PS 5.25.1 per UR support 2026-04-20)
 **Autor:** Andrej Bielik — STIMBA, s. r. o.
 **Dátum:** 2026-04-21
-**Artefakt:** `vnc-server-3.9.0.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.9.0](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.9.0).
+**Artefakt:** `vnc-server-3.10.0.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.10.0](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.10.0).
+
+### v3.10.0 (2026-04-21) — auto-discovery + error log tail + long-poll
+
+- **`RobotMetadataProbe.java`** — jednorazový probe cez URCap API 1.16 `SystemAPI` (verified: `getSoftwareVersion()` + `getRobotModel().getSerialNumber()` + `getRobotType()` + deprecated `getRobotSeries()` pre PS5/CB3 detection). Plus `java.net.NetworkInterface` pre MAC + IP + hostname, TimeZone default, `/root/.version` pre controller box revision. Portal stamps `devices.auto_discovered_at` keď vidí `autoDiscoveryCycle=true` flag.
+- **`PolyscopeLogTailer.java`** — tail `/var/log/urcontrol.log` + `/var/log/PolyscopeLog.log`, klasifikuje WARN/ERROR/FATAL/PROTECTIVE_STOP, 200 B cap na line, 20-entry ring buffer. Drain per heartbeat → portal `device_error_log` (90 d TTL). Žiadny historical flood — štart tracking od END of file.
+- **`PortalHeartbeatRunner.attachDiscovery()`** — wire up pre probe + tailer. One-shot auto-discovery flag reset keď runner vytvorí nový (pair/reconnect cycle).
+- **`DashboardCommandPoller`** → long-poll mode. `pollCommands(token, deviceId, 25)` — portal drží connection 25 s alebo vráti okamžite pri queued command. Efektívna latencia click → motion klesá z ~5 s (pôvodný 5 s poll) na <500 ms P95.
+- **`PortalClient.pollCommands(token, deviceId, waitSeconds)`** overload + `exchange()` s read-timeout override (35 s pre long-poll).
+- Zároveň **bugfix** — `pollCommands` pôvodne hľadal `tool_name` v response; portal vracia `tool`. Dual-read (v3.10 first `tool`, fallback `tool_name` pre legacy).
 
 ### v3.9.0 (2026-04-21) — Installation view polish + PolyScope X scaffold
 

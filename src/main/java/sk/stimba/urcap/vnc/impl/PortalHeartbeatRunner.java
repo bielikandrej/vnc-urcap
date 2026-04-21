@@ -36,6 +36,12 @@ public final class PortalHeartbeatRunner {
     // v3.7.0 — optional RTDE reader. When set, its latest sample is attached
     // to every heartbeat payload.
     private volatile RtdeReader rtde;
+    // v3.10.0 — auto-discovery probe + log tailer.
+    private volatile RobotMetadataProbe metadataProbe;
+    private volatile PolyscopeLogTailer logTailer;
+    // One-shot: true on first tick after start() (pair/reconnect). Portal
+    // stamps devices.auto_discovered_at when it sees autoDiscoveryCycle=true.
+    private volatile boolean autoDiscoveryDue = true;
 
     private ScheduledExecutorService exec;
 
@@ -104,6 +110,17 @@ public final class PortalHeartbeatRunner {
      */
     public void attachRtde(RtdeReader r) {
         this.rtde = r;
+    }
+
+    /**
+     * Attach the v3.10 auto-discovery probe + log tailer. Probe runs once on
+     * first heartbeat (one-shot per connection, per user decision), tailer
+     * streams errors continuously in every heartbeat.
+     */
+    public void attachDiscovery(RobotMetadataProbe probe, PolyscopeLogTailer tailer) {
+        this.metadataProbe = probe;
+        this.logTailer = tailer;
+        this.autoDiscoveryDue = true;
     }
 
     private void tick() {
@@ -200,7 +217,39 @@ public final class PortalHeartbeatRunner {
         caps.put("program_list", true);
         caps.put("panic_halt", true);
         caps.put("rtde", rtde != null);
+        caps.put("auto_discovery", metadataProbe != null);
+        caps.put("log_tail", logTailer != null);
+        caps.put("long_poll", true); // v3.10
         payload.put("capabilities", caps);
+
+        // v3.10.0 — auto-discovery (one-shot per connection)
+        if (metadataProbe != null && autoDiscoveryDue) {
+            try {
+                RobotMetadataProbe.Snapshot snap2 = metadataProbe.probe();
+                payload.putAll(snap2.toHeartbeatMap());
+                payload.put("autoDiscoveryCycle", true);
+                autoDiscoveryDue = false;
+                LOG.info("auto-discovery sent: serial=" + snap2.serialNumber +
+                        " model=" + snap2.robotModel + " ps=" + snap2.polyscopeVersion);
+            } catch (Throwable t) {
+                LOG.warning("auto-discovery probe threw: " + t.getMessage());
+            }
+        }
+
+        // v3.10.0 — streaming error log tail (drained per heartbeat, ring buffer of 20)
+        if (logTailer != null) {
+            try {
+                logTailer.tick();
+                java.util.List<PolyscopeLogTailer.Entry> drained = logTailer.drain();
+                if (!drained.isEmpty()) {
+                    java.util.List<java.util.Map<String, Object>> arr = new java.util.ArrayList<>(drained.size());
+                    for (PolyscopeLogTailer.Entry e : drained) arr.add(e.toMap());
+                    payload.put("recentErrors", arr);
+                }
+            } catch (Throwable t) {
+                LOG.fine("log tail threw: " + t.getMessage());
+            }
+        }
 
         return PortalClient.toJson(payload);
     }

@@ -18,6 +18,11 @@ sk.stimba.urcap.vnc.impl.DashboardCommandPoller :: public <init>(PortalClient, D
 sk.stimba.urcap.vnc.impl.DashboardCommandPoller :: public isRunning() -> boolean
 sk.stimba.urcap.vnc.impl.DashboardCommandPoller :: public start() -> void
 sk.stimba.urcap.vnc.impl.DashboardCommandPoller :: public stop() -> void
+sk.stimba.urcap.vnc.impl.PolyscopeLogTailer :: package static <clinit>() -> void
+sk.stimba.urcap.vnc.impl.PolyscopeLogTailer :: public <init>() -> void
+sk.stimba.urcap.vnc.impl.PolyscopeLogTailer :: public <init>(Path[]) -> void
+sk.stimba.urcap.vnc.impl.PolyscopeLogTailer :: public drain() -> List
+sk.stimba.urcap.vnc.impl.PolyscopeLogTailer :: public tick() -> void
 sk.stimba.urcap.vnc.impl.PortalClient :: package static <clinit>() -> void
 sk.stimba.urcap.vnc.impl.PortalClient :: public <init>(String) -> void
 sk.stimba.urcap.vnc.impl.PortalClient :: public ackCommand(String, String, String, boolean, String, String) -> boolean
@@ -29,12 +34,14 @@ sk.stimba.urcap.vnc.impl.PortalClient :: package static extractString(String, St
 sk.stimba.urcap.vnc.impl.PortalClient :: package static findMatchingBracket(String, int) -> int
 sk.stimba.urcap.vnc.impl.PortalClient :: public heartbeat(String, String, String) -> boolean
 sk.stimba.urcap.vnc.impl.PortalClient :: public pollCommands(String, String) -> List
+sk.stimba.urcap.vnc.impl.PortalClient :: public pollCommands(String, String, int) -> List
 sk.stimba.urcap.vnc.impl.PortalClient :: package static splitTopLevelObjects(String) -> List
 sk.stimba.urcap.vnc.impl.PortalClient :: package static toJson(Map) -> String
 sk.stimba.urcap.vnc.impl.PortalClient :: public unpair(String, String) -> boolean
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: package static <clinit>() -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public <init>(PortalClient, DashboardClient, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$StatusSink) -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public <init>(PortalClient, DashboardClient, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$StatusSink) -> void
+sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public attachDiscovery(RobotMetadataProbe, PolyscopeLogTailer) -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public attachRtde(RtdeReader) -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public isRunning() -> boolean
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public start() -> void
@@ -44,6 +51,9 @@ sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public <init>() -> void
 sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public <init>(String, int) -> void
 sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public sendOneLiner(String) -> void
 sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public sendScript(String) -> void
+sk.stimba.urcap.vnc.impl.RobotMetadataProbe :: package static <clinit>() -> void
+sk.stimba.urcap.vnc.impl.RobotMetadataProbe :: public <init>(InstallationAPIProvider) -> void
+sk.stimba.urcap.vnc.impl.RobotMetadataProbe :: public probe() -> RobotMetadataProbe$Snapshot
 sk.stimba.urcap.vnc.impl.RtdeReader :: package static <clinit>() -> void
 sk.stimba.urcap.vnc.impl.RtdeReader :: public <init>() -> void
 sk.stimba.urcap.vnc.impl.RtdeReader :: public connected() -> boolean

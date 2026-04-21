@@ -36,7 +36,12 @@ import java.util.logging.Logger;
 public final class DashboardCommandPoller {
 
     private static final Logger LOG = Logger.getLogger(DashboardCommandPoller.class.getName());
-    private static final int DEFAULT_POLL_S = 5;
+    // v3.10.0 — long-poll changes cadence semantics. Between polls we wait
+    // DEFAULT_GAP_S seconds, and each poll can itself hold LONG_POLL_WAIT_S
+    // on the portal side. Effective latency for queued commands is bounded
+    // by how fast the portal responds (sub-second) plus our client TCP RTT.
+    private static final int DEFAULT_GAP_S = 2;
+    private static final int LONG_POLL_WAIT_S = 25;
 
     private final PortalClient client;
     private final DashboardClient dashboard;
@@ -87,8 +92,10 @@ public final class DashboardCommandPoller {
             t.setDaemon(true);
             return t;
         });
-        exec.scheduleWithFixedDelay(this::tick, 10, DEFAULT_POLL_S, TimeUnit.SECONDS);
-        LOG.info("Portal command poller started (" + DEFAULT_POLL_S + "s)");
+        // v3.10: short gap between ticks; each tick can block up to LONG_POLL_WAIT_S
+        exec.scheduleWithFixedDelay(this::tick, 10, DEFAULT_GAP_S, TimeUnit.SECONDS);
+        LOG.info("Portal command poller started (long-poll "
+                + LONG_POLL_WAIT_S + "s wait, " + DEFAULT_GAP_S + "s gap)");
     }
 
     public synchronized void stop() {
@@ -105,7 +112,11 @@ public final class DashboardCommandPoller {
         if (token == null || token.isEmpty() || deviceId == null || deviceId.isEmpty()) return;
 
         try {
-            List<PortalClient.QueuedCommand> batch = client.pollCommands(token, deviceId);
+            // v3.10 — long-poll: portal holds connection up to LONG_POLL_WAIT_S
+            // and returns as soon as a command is queued. Falls back to
+            // immediate return for older portals via X-Stimba-LongPoll-Supported
+            // (portal will just ignore the `wait` query param if not supported).
+            List<PortalClient.QueuedCommand> batch = client.pollCommands(token, deviceId, LONG_POLL_WAIT_S);
             for (PortalClient.QueuedCommand cmd : batch) {
                 Ack result;
                 try {

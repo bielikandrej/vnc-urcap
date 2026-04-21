@@ -32,7 +32,7 @@ public final class PortalClient {
     public static final String DEFAULT_PORTAL_URL = "https://portal.stimba.sk";
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS    = 15_000;
-    public static final String URCAP_VERSION    = "stimba-vnc-urcap/3.9.0";
+    public static final String URCAP_VERSION    = "stimba-vnc-urcap/3.10.0";
 
     private final String portalUrl;
 
@@ -141,14 +141,27 @@ public final class PortalClient {
     /**
      * v3.5.0 — Poll queued AI commands for this device. Atomic claim on the
      * portal side (UPDATE … RETURNING * so concurrent pollers don't double-dispatch).
+     *
+     * v3.10.0 — supports long-poll via `waitSeconds > 0` (portal holds connection
+     * up to waitSeconds and returns immediately when a command arrives). This
+     * drops effective command latency from ~5 s (poll interval) to <500 ms.
      */
     public java.util.List<QueuedCommand> pollCommands(String token, String deviceId) {
+        return pollCommands(token, deviceId, 0);
+    }
+
+    public java.util.List<QueuedCommand> pollCommands(String token, String deviceId, int waitSeconds) {
         java.util.List<QueuedCommand> out = new java.util.ArrayList<>();
         try {
-            HttpResult r = get("/api/agent/commands", token, deviceId);
+            String path = waitSeconds > 0
+                    ? "/api/agent/commands?wait=" + waitSeconds
+                    : "/api/agent/commands";
+            // Use extended timeout for long-poll (waitSeconds + 5 s slack)
+            HttpResult r = get(path, token, deviceId,
+                    waitSeconds > 0 ? (waitSeconds + 5) * 1000 : 0);
             if (r.code != 200) return out;
-            // Response shape: { device_id, polled_at, commands: [ { id, tool_name, args: {...} } ] }
-            // We extract commands[] via simple string scanning since args is nested JSON.
+            // Response shape: { device_id, polled_at, commands: [ { id, tool, args: {...} } ] }
+            // v3.10: portal returns `tool` (not `tool_name`). Accept both for compat.
             String body = r.body;
             int idxList = body.indexOf("\"commands\"");
             if (idxList < 0) return out;
@@ -156,12 +169,11 @@ public final class PortalClient {
             int arrEnd   = findMatchingBracket(body, arrStart);
             if (arrStart < 0 || arrEnd < 0) return out;
             String arr = body.substring(arrStart + 1, arrEnd);
-            // Split by top-level '},{' — fragile but good enough for portal's payload shape
             java.util.List<String> items = splitTopLevelObjects(arr);
             for (String item : items) {
                 String id   = extractString(item, "id");
-                String tool = extractString(item, "tool_name");
-                // args may be an object — grab raw sub-object after "args":
+                String tool = extractString(item, "tool");          // v3.10 canonical
+                if (tool == null) tool = extractString(item, "tool_name"); // legacy fallback
                 String argsJson = extractRawObject(item, "args");
                 if (id != null && tool != null) {
                     out.add(new QueuedCommand(id, tool, argsJson == null ? "{}" : argsJson));
@@ -209,16 +221,27 @@ public final class PortalClient {
     }
 
     private HttpResult get(String path, String bearerToken, String deviceIdHeader) throws IOException {
-        return exchange("GET", path, bearerToken, deviceIdHeader, null);
+        return exchange("GET", path, bearerToken, deviceIdHeader, null, 0);
+    }
+
+    // v3.10 — overload accepting explicit read-timeout override (for long-poll)
+    private HttpResult get(String path, String bearerToken, String deviceIdHeader, int readTimeoutMsOverride) throws IOException {
+        return exchange("GET", path, bearerToken, deviceIdHeader, null, readTimeoutMsOverride);
     }
 
     private HttpResult exchange(String method, String path, String bearerToken,
                                 String deviceIdHeader, String bodyJson) throws IOException {
+        return exchange(method, path, bearerToken, deviceIdHeader, bodyJson, 0);
+    }
+
+    private HttpResult exchange(String method, String path, String bearerToken,
+                                String deviceIdHeader, String bodyJson,
+                                int readTimeoutMsOverride) throws IOException {
         URL url = new URL(this.portalUrl + path);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         try {
             conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
-            conn.setReadTimeout(READ_TIMEOUT_MS);
+            conn.setReadTimeout(readTimeoutMsOverride > 0 ? readTimeoutMsOverride : READ_TIMEOUT_MS);
             if (bodyJson != null) conn.setDoOutput(true);
             try {
                 conn.setRequestMethod(method);
