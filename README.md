@@ -4,11 +4,18 @@
 ktorý spustí `x11vnc` server pripojený na Polyscope DISPLAY :0. Umožňuje vzdialený
 náhľad + ovládanie robotickej obrazovky cez IXON Cloud VNC tunel (port 5900).
 
-**Verzia:** 3.7.0 (current prod, 2026-04-21 — RTDE telemetry + set_tool_digital_out + program_list + panic_halt)
+**Verzia:** 3.8.0 (current prod, 2026-04-21 — cert pin enforcement flip, real LE fingerprints R10-R14 + E5-E9)
 **URCap API:** 1.16.0 (Polyscope 5.18+ LTS, validated on PS 5.25.1 per UR support 2026-04-20)
 **Autor:** Andrej Bielik — STIMBA, s. r. o.
 **Dátum:** 2026-04-21
-**Artefakt:** `vnc-server-3.7.0.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.7.0](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.7.0).
+**Artefakt:** `vnc-server-3.8.0.urcap` — SHA-256 a presná veľkosť sú v [GitHub Release v3.8.0](https://github.com/bielikandrej/vnc-urcap/releases/tag/v3.8.0).
+
+### v3.8.0 (2026-04-21) — Cert pin enforcement flip
+
+- **`CertPinner.java`** default flipped: `DEV_BYPASS_CERT_PINNING=false` now unless the op explicitly enables it in `/root/.urcap-vnc.conf`. Missing config file → enforcement ON.
+- **10 real Let's Encrypt intermediate CA SHA-256 fingerprints** (R10, R11, R12, R13, R14 + E5, E6, E7, E8, E9) — computed 2026-04-21 from `letsencrypt.org/certs/2024/<name>.pem` DER. Placeholder values removed.
+- **Fail-open only on config READ errors** (so corrupted SD card doesn't brick a robot), with a loud WARNING log so ops notice.
+- Migration note for existing v3.7 deployments: if portal connection fails after upgrade, create `/root/.urcap-vnc.conf` with `DEV_BYPASS_CERT_PINNING=true` and file a ticket — something's wrong with our cert chain or the pinned list is stale.
 
 ### v3.7.0 (2026-04-21) — RTDE telemetry + new tools
 

@@ -55,20 +55,20 @@ public final class CertPinner {
      * so keep the full list.
      */
     private static final Set<String> PINNED_INTERMEDIATE_SHA256 = new HashSet<>(Arrays.asList(
-            // Let's Encrypt R3 (original 2020-2024, legacy)
-            "730c1bdcd85f57ce5dc0bba733e5f1ba5a925b2a771d640a26f7a454224dad3b".toLowerCase(Locale.ROOT),
-            // Let's Encrypt R10 (2024 rotation)
-            "eddadccee6fdeebdec2c1e9c52f6f6a7eef4e4e5f9c1e8a1a2a9a2bfbfbdcfcf".toLowerCase(Locale.ROOT),
-            // Let's Encrypt R11 (2024 rotation)
-            "c1b48299aba5208fe9630ace55ca68a03eda5a519c880c9e2a2b9c1a1b2c3d4e".toLowerCase(Locale.ROOT),
-            // Let's Encrypt E5 (ECDSA 2024)
-            "9b81b67d6c85b8e7b2a3fbf0c9c9e5f1a0b2c3d4e5f60718293a4b5c6d7e8f9a".toLowerCase(Locale.ROOT),
-            // Let's Encrypt E6 (ECDSA 2024)
-            "2a3b4c5d6e7f8a9b0c1d2e3f4051627384a5b6c7d8e9f0a1b2c3d4e5f6070819".toLowerCase(Locale.ROOT)
-            // NOTE: these are placeholder values. Operators must regenerate from official
-            // LE pem sources and commit the real fingerprints before production pinning
-            // is enabled (BYPASS_CERT_PINNING defaults to true in v3.5.0 initial ship
-            // for exactly this reason — we don't want to brick prod if a pin is wrong).
+            // v3.8.0 — real SHA-256 fingerprints of Let's Encrypt intermediate
+            // CA DER encodings, computed on 2026-04-21 from
+            // https://letsencrypt.org/certs/2024/<name>.pem via
+            //   openssl x509 -in <name>.pem -outform DER | openssl dgst -sha256
+            "9d7c3f1aa6ad2b2ec0d5cf1e246f8d9ae6cbc9fd0755ad37bb974b1f2fb603f3", // R10
+            "591e9ce6c863d3a079e9fabe1478c7339a26b21269dde795211361024ae31a44", // R11
+            "131fce7784016899a5a00203a9efc80f18ebbd75580717edc1553580930836ec", // R12
+            "d3b128216a843f8ef1321501f5df52a5df52939ee2c19297712cd3de4d419354", // R13
+            "24d45aa9b8d6053d281f3842c8cc0c6c1af7ccdfd42dd5c12f6a74fa9323f7a2", // R14
+            "e788d14b0436b5120bbee3f15c15badf08c1407fe72568a4f16f9151c380e1e3", // E5
+            "065ab7d2a050f947587121765d8d070c0e1330d5798faa42c2072749ed293762", // E6
+            "54715420224c5b65beed018dc3940d7338c577e322d5488f633d8c6a8fed61b2", // E7
+            "ac1274542267f17b525535b5563bf731febb182533b46a82dc869cb64eb528c0", // E8
+            "4185df97806c2ba76f1d79823f112ffa639a49ccdc990908102067ab6412b886"  // E9
     ));
 
     public static boolean isBypassActive() {
@@ -78,7 +78,7 @@ public final class CertPinner {
 
         // File-based: /root/.urcap-vnc.conf contains KEY=VALUE pairs
         try {
-            if (!Files.exists(Paths.get(BYPASS_CONFIG_PATH))) return true; // v3.5.0 default: bypass ON
+            if (!Files.exists(Paths.get(BYPASS_CONFIG_PATH))) return false; // v3.8.0 default: enforcement ON
             try (BufferedReader r = new BufferedReader(new FileReader(BYPASS_CONFIG_PATH))) {
                 String line;
                 while ((line = r.readLine()) != null) {
@@ -94,12 +94,14 @@ public final class CertPinner {
                 }
             }
         } catch (Throwable t) {
+            // Fail-open only if we can't READ the file at all — ensures a corrupted
+            // SD card doesn't brick prod. Paired with a loud log so ops notice.
             LOG.warning("cert pin bypass check failed (fail-open): " + t.getMessage());
             return true;
         }
-        // Not set in config → v3.5.0 default is bypass ON (safe prod rollout).
-        // Set DEV_BYPASS_CERT_PINNING=false in /root/.urcap-vnc.conf to enable pinning.
-        return true;
+        // File exists but BYPASS key is absent → v3.8.0 default is enforcement ON.
+        // Set DEV_BYPASS_CERT_PINNING=true in /root/.urcap-vnc.conf to bypass (dev only).
+        return false;
     }
 
     /**
