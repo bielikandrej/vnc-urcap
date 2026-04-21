@@ -38,6 +38,11 @@ sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public <init>(PortalClient, Da
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public isRunning() -> boolean
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public start() -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public stop() -> void
+sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: package static <clinit>() -> void
+sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public <init>() -> void
+sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public <init>(String, int) -> void
+sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public sendOneLiner(String) -> void
+sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public sendScript(String) -> void
 sk.stimba.urcap.vnc.impl.TokenCrypto :: package static <clinit>() -> void
 sk.stimba.urcap.vnc.impl.TokenCrypto :: public <init>(String, String) -> void
 sk.stimba.urcap.vnc.impl.TokenCrypto :: public static ephemeral() -> TokenCrypto
