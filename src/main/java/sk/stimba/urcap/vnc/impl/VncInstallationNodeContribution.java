@@ -146,6 +146,9 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
     private TokenCrypto tokenCrypto;
     private DashboardCommandPoller commandPoller;
 
+    // v3.6.0 — Primary Interface client for urscript_send + IO via URScript
+    private final PrimaryInterfaceClient primaryClient = new PrimaryInterfaceClient();
+
     public VncInstallationNodeContribution(InstallationAPIProvider apiProvider,
                                            VncInstallationNodeView view,
                                            DataModel model,
@@ -970,10 +973,54 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
                     setVncPassword(pwd);
                     return new DashboardCommandPoller.Ack(true, "vnc password rotated", null);
                 }
-                case "io_set_digital_out":
-                    // Requires Primary Interface URScript, not Dashboard Server.
-                    // Scoped for v3.6 — for now, acknowledge as unsupported.
-                    return new DashboardCommandPoller.Ack(false, null, "io_set_digital_out not implemented in v3.5.0 — v3.6 scope");
+                case "io_set_digital_out": {
+                    // v3.6.0 — synthesize 1-line URScript + send via Primary
+                    String idxStr = extractArgString(argsJson, "index");
+                    String valStr = extractArgString(argsJson, "value");
+                    Integer idx = null;
+                    try { idx = idxStr == null ? null : Integer.parseInt(idxStr.trim()); } catch (Throwable ignored) {}
+                    Boolean val = null;
+                    if (valStr != null) {
+                        String v = valStr.trim().toLowerCase();
+                        if ("true".equals(v) || "1".equals(v))  val = Boolean.TRUE;
+                        if ("false".equals(v) || "0".equals(v)) val = Boolean.FALSE;
+                    }
+                    if (idx == null || idx < 0 || idx > 7) {
+                        return new DashboardCommandPoller.Ack(false, null, "io_set_digital_out: index must be 0..7");
+                    }
+                    if (val == null) {
+                        return new DashboardCommandPoller.Ack(false, null, "io_set_digital_out: value must be true|false");
+                    }
+                    try {
+                        primaryClient.sendOneLiner("set_digital_out(" + idx + ", " + (val ? "True" : "False") + ")");
+                        return new DashboardCommandPoller.Ack(true,
+                                "DO" + idx + " = " + val, null);
+                    } catch (IOException ioe) {
+                        return new DashboardCommandPoller.Ack(false, null,
+                                "Primary Interface unreachable: " + ioe.getMessage());
+                    }
+                }
+                case "urscript_send": {
+                    // v3.6.0 — raw URScript execution via Primary Interface :30001.
+                    // Portal has already gated on ai.execute permission + blacklist +
+                    // length limit. We're a dumb pipe here; we do one last sanity
+                    // check on length to keep a misbehaving portal from flooding.
+                    String script = extractArgString(argsJson, "script");
+                    if (script == null || script.isEmpty()) {
+                        return new DashboardCommandPoller.Ack(false, null, "urscript_send: missing 'script' arg");
+                    }
+                    if (script.length() > 16_384) {
+                        return new DashboardCommandPoller.Ack(false, null, "urscript_send: script >16KB, refusing");
+                    }
+                    try {
+                        primaryClient.sendScript(script);
+                        return new DashboardCommandPoller.Ack(true,
+                                "URScript sent (" + script.length() + " bytes)", null);
+                    } catch (IOException ioe) {
+                        return new DashboardCommandPoller.Ack(false, null,
+                                "Primary Interface unreachable: " + ioe.getMessage());
+                    }
+                }
                 default:
                     return new DashboardCommandPoller.Ack(false, null, "unknown tool: " + toolName);
             }

@@ -32,7 +32,7 @@ public final class PortalClient {
     public static final String DEFAULT_PORTAL_URL = "https://portal.stimba.sk";
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS    = 15_000;
-    public static final String URCAP_VERSION    = "stimba-vnc-urcap/3.5.0";
+    public static final String URCAP_VERSION    = "stimba-vnc-urcap/3.6.0";
 
     private final String portalUrl;
 
