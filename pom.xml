@@ -6,11 +6,11 @@
 
     <groupId>sk.stimba.urcap</groupId>
     <artifactId>vnc-server</artifactId>
-    <version>3.10.0</version>
+    <version>3.12.0</version>
     <packaging>bundle</packaging>
 
     <name>STIMBA VNC Server URCap</name>
-    <description>x11vnc daemon URCap for Universal Robots e-Series — enables IXON Cloud VNC tunneling to Polyscope 5.</description>
+    <description>x11vnc daemon URCap for Universal Robots e-Series — native VNC via the STIMBA VNC Relay (replaces IXON VNC for Polyscope 5.20+).</description>
     <url>https://stimba.sk</url>
 
     <organization>

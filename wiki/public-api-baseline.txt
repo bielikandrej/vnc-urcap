@@ -43,6 +43,7 @@ sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public <init>(PortalClient, Da
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public <init>(PortalClient, DashboardClient, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$Supplier, PortalHeartbeatRunner$StatusSink) -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public attachDiscovery(RobotMetadataProbe, PolyscopeLogTailer) -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public attachRtde(RtdeReader) -> void
+sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public attachTunnel(VncTunnelClient) -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public isRunning() -> boolean
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public start() -> void
 sk.stimba.urcap.vnc.impl.PortalHeartbeatRunner :: public stop() -> void
@@ -88,10 +89,13 @@ sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getPortalDevi
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getPortalDeviceIdMasked() -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getPortalLastStatus() -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getPortalPairedAt() -> String
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getRelayUrl() -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public getTlsFingerprint() -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isAutostart() -> boolean
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isDefined() -> boolean
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isPaired() -> boolean
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isRelayConnected() -> boolean
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isRelayEnabled() -> boolean
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isRequireStrongPwd() -> boolean
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isTlsEnabled() -> boolean
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public isViewOnly() -> boolean
@@ -107,6 +111,8 @@ sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setIxrouterIp
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setMaxClients(int) -> boolean
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setPassword(String) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setPort(int) -> void
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setRelayEnabled(boolean) -> void
+sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setRelayUrl(String) -> boolean
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setRequireStrongPwd(boolean) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setTlsEnabled(boolean) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeContribution :: public setViewOnly(boolean) -> void
@@ -146,3 +152,9 @@ sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updateStatus(String, 
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updateTlsEnabled(boolean) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updateTlsFingerprintLabel(String) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public updateViewOnly(boolean) -> void
+sk.stimba.urcap.vnc.impl.VncTunnelClient :: package static <clinit>() -> void
+sk.stimba.urcap.vnc.impl.VncTunnelClient :: public <init>(VncTunnelClient$Supplier, VncTunnelClient$Supplier, VncTunnelClient$Supplier, VncTunnelClient$IntSupplier, VncTunnelClient$BoolSupplier, VncTunnelClient$StatusSink) -> void
+sk.stimba.urcap.vnc.impl.VncTunnelClient :: public isConnected() -> boolean
+sk.stimba.urcap.vnc.impl.VncTunnelClient :: public isRunning() -> boolean
+sk.stimba.urcap.vnc.impl.VncTunnelClient :: public start() -> void
+sk.stimba.urcap.vnc.impl.VncTunnelClient :: public stop() -> void
