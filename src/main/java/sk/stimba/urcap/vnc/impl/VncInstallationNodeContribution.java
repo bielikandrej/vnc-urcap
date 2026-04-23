@@ -82,6 +82,13 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
     private static final String KEY_PORTAL_PAIRED_AT   = "portal.pairedAt";
     private static final String KEY_PORTAL_LAST_STATUS = "portal.lastStatus";
 
+    // --- v3.12.0 VNC Relay (reverse tunnel to Fly.io relay) ---------------
+    // Replaces the IXON VNC path for customers whose IXON URCap broke after
+    // Polyscope 5.20+ updates. URCap initiates outbound WSS to relay, which
+    // then forwards browser noVNC frames to local x11vnc:5900.
+    private static final String KEY_RELAY_ENABLED = "relay.enabled";
+    private static final String KEY_RELAY_URL     = "relay.url";
+
     // --- Defaults ---------------------------------------------------------
     private static final int     DEFAULT_PORT             = 5900;
     private static final String  DEFAULT_PASSWORD         = "ixon";
@@ -93,6 +100,9 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
     private static final boolean DEFAULT_TLS_ENABLED      = true;              // v3.0.0 — secure-by-default
     private static final int     DEFAULT_IDLE_TIMEOUT_MIN = 30;                // v3.0.0 — 30 min walk-away safety
     private static final int     DEFAULT_MAX_CLIENTS      = 1;                 // v3.0.0 — single-session admin
+    // v3.12.0 — relay opt-in by default (operator can disable per robot)
+    private static final boolean DEFAULT_RELAY_ENABLED    = true;
+    private static final String  DEFAULT_RELAY_URL        = "wss://stimba-vnc-relay.fly.dev";
 
     // --- Validation limits for Sprint-3 fields ----------------------------
     public  static final int     IDLE_TIMEOUT_MIN_MIN     = 0;                 // 0 disables the watcher
@@ -157,6 +167,9 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
     private PolyscopeLogTailer logTailer;
     private final InstallationAPIProvider apiProviderRef;
 
+    // v3.12.0 — VNC relay tunnel client
+    private VncTunnelClient vncTunnel;
+
     public VncInstallationNodeContribution(InstallationAPIProvider apiProvider,
                                            VncInstallationNodeView view,
                                            DataModel model,
@@ -195,6 +208,9 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
             model.set(KEY_TLS_ENABLED,      DEFAULT_TLS_ENABLED);
             model.set(KEY_IDLE_TIMEOUT_MIN, DEFAULT_IDLE_TIMEOUT_MIN);
             model.set(KEY_MAX_CLIENTS,      DEFAULT_MAX_CLIENTS);
+            // v3.12.0 — relay defaults
+            model.set(KEY_RELAY_ENABLED,    DEFAULT_RELAY_ENABLED);
+            model.set(KEY_RELAY_URL,        DEFAULT_RELAY_URL);
         }
 
         // Fire up the daemon automatically if autostart is set
@@ -362,6 +378,27 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
         if (n < MAX_CLIENTS_MIN || n > MAX_CLIENTS_MAX) return false;
         model.set(KEY_MAX_CLIENTS, n);
         return true;
+    }
+
+    // --- v3.12.0 — VNC relay accessors ------------------------------------
+    // Operator can disable the relay per robot; default true. URL accepts
+    // only ws:// or wss:// schemes so a typo can't silently point the tunnel
+    // at the portal HTTPS origin.
+
+    public boolean isRelayEnabled() { return model.get(KEY_RELAY_ENABLED, DEFAULT_RELAY_ENABLED); }
+    public void setRelayEnabled(boolean v) { model.set(KEY_RELAY_ENABLED, v); }
+
+    public String getRelayUrl() { return get(KEY_RELAY_URL, DEFAULT_RELAY_URL); }
+    public boolean setRelayUrl(String url) {
+        if (url == null) return false;
+        String u = url.trim();
+        if (!(u.startsWith("wss://") || u.startsWith("ws://"))) return false;
+        model.set(KEY_RELAY_URL, u);
+        return true;
+    }
+
+    public boolean isRelayConnected() {
+        return vncTunnel != null && vncTunnel.isConnected();
     }
 
     /**
@@ -944,9 +981,32 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
             );
             commandPoller.start();
         }
+
+        // v3.12.0 — VNC relay reverse tunnel. Runs 24/7 while paired; when no
+        // browser is attached on the relay side, the agent socket just sits
+        // idle. On browser connect the relay pipes bytes to local x11vnc.
+        // Reconnects automatically with exponential backoff on any failure.
+        if (vncTunnel == null) {
+            vncTunnel = new VncTunnelClient(
+                    () -> getUnwrappedToken(),
+                    () -> get(KEY_PORTAL_DEVICE_ID, ""),
+                    () -> getRelayUrl(),
+                    () -> getPort(),
+                    () -> isRelayEnabled(),
+                    (status) -> java.util.logging.Logger
+                            .getLogger(VncTunnelClient.class.getName())
+                            .info("[relay-status] " + status)
+            );
+            vncTunnel.start();
+            portalHeartbeat.attachTunnel(vncTunnel);
+        }
     }
 
     private void stopHeartbeat() {
+        if (vncTunnel != null) {
+            vncTunnel.stop();
+            vncTunnel = null;
+        }
         if (portalHeartbeat != null) {
             portalHeartbeat.stop();
             portalHeartbeat = null;

@@ -39,6 +39,8 @@ public final class PortalHeartbeatRunner {
     // v3.10.0 — auto-discovery probe + log tailer.
     private volatile RobotMetadataProbe metadataProbe;
     private volatile PolyscopeLogTailer logTailer;
+    // v3.12.0 — VNC relay tunnel client (reports connected/running state via capabilities).
+    private volatile VncTunnelClient vncTunnel;
     // One-shot: true on first tick after start() (pair/reconnect). Portal
     // stamps devices.auto_discovered_at when it sees autoDiscoveryCycle=true.
     private volatile boolean autoDiscoveryDue = true;
@@ -121,6 +123,15 @@ public final class PortalHeartbeatRunner {
         this.metadataProbe = probe;
         this.logTailer = tailer;
         this.autoDiscoveryDue = true;
+    }
+
+    /**
+     * v3.12.0 — attach the VNC relay tunnel so its connected/running state
+     * gets mirrored into capabilities.vnc_relay{,_connected} on every tick.
+     * Portal UI uses this to show the "VNC ready" badge on /devices/:id.
+     */
+    public void attachTunnel(VncTunnelClient t) {
+        this.vncTunnel = t;
     }
 
     private void tick() {
@@ -220,6 +231,12 @@ public final class PortalHeartbeatRunner {
         caps.put("auto_discovery", metadataProbe != null);
         caps.put("log_tail", logTailer != null);
         caps.put("long_poll", true); // v3.10
+        // v3.12.0 — VNC relay tunnel. "vnc_relay" = URCap has the client wired
+        // and running (enables UI to show VNC button); "vnc_relay_connected"
+        // = WS session currently up AND local x11vnc reachable (operator can
+        // actually view frames right now).
+        caps.put("vnc_relay", vncTunnel != null && vncTunnel.isRunning());
+        caps.put("vnc_relay_connected", vncTunnel != null && vncTunnel.isConnected());
         payload.put("capabilities", caps);
 
         // v3.10.0 — auto-discovery (one-shot per connection)
