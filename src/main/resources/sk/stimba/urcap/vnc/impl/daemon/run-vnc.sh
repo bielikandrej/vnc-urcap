@@ -213,49 +213,105 @@ trap 'rm -f "${LOCK_FILE}"' EXIT
 # boot but only writes sources files if they still point at the live
 # mirrors.
 fix_apt_sources() {
-    # Detect Debian codename. /etc/os-release is the canonical source.
+    # v3.12.5 — log the actual system state first so when the install still
+    # fails we have enough in /var/log/urcap-vnc.log to diagnose without
+    # SSH. UR firmware varies; previous codename detection relied on
+    # /etc/os-release VERSION_CODENAME which is empty on at least one
+    # Stimba fleet robot.
+    log "--- apt environment dump ---"
+    if [ -r /etc/os-release ]; then
+        log "/etc/os-release:"
+        sed 's/^/    /' /etc/os-release | tee -a "${DAEMON_LOG}"
+    else
+        log "/etc/os-release missing"
+    fi
+    if [ -r /etc/debian_version ]; then
+        log "/etc/debian_version: $(cat /etc/debian_version)"
+    fi
+    log "/etc/apt/sources.list:"
+    if [ -r /etc/apt/sources.list ]; then
+        sed 's/^/    /' /etc/apt/sources.list | tee -a "${DAEMON_LOG}"
+    else
+        log "    (missing)"
+    fi
+    for f in /etc/apt/sources.list.d/*.list; do
+        [ -f "$f" ] || continue
+        log "${f}:"
+        sed 's/^/    /' "$f" | tee -a "${DAEMON_LOG}"
+    done
+    log "--- end apt dump ---"
+
+    # Detect codename via three methods: os-release → debian_version →
+    # grep sources.list for known keyword. First hit wins.
     CODENAME=""
     if [ -r /etc/os-release ]; then
         . /etc/os-release
         CODENAME="${VERSION_CODENAME:-}"
     fi
     if [ -z "${CODENAME}" ] && [ -r /etc/debian_version ]; then
-        # Fallback — map numeric release to codename
         case "$(cat /etc/debian_version)" in
+            8.*|jessie/*)   CODENAME="jessie" ;;
             9.*|stretch/*)  CODENAME="stretch" ;;
             10.*|buster/*)  CODENAME="buster" ;;
             11.*|bullseye/*) CODENAME="bullseye" ;;
+            12.*|bookworm/*) CODENAME="bookworm" ;;
         esac
+    fi
+    if [ -z "${CODENAME}" ] && [ -r /etc/apt/sources.list ]; then
+        for kw in jessie stretch buster bullseye bookworm; do
+            if grep -q "\\b${kw}\\b" /etc/apt/sources.list 2>/dev/null; then
+                CODENAME="$kw"
+                break
+            fi
+        done
     fi
     log "Debian codename detected: ${CODENAME:-unknown}"
 
-    # Only rewrite for EOL dists. Bullseye is still alive — leave alone.
+    # Drop our own sources list pointing at archive.debian.org (serves EOL).
+    # Keep UR's factory sources.list untouched — we ADD a second source so
+    # x11vnc becomes available without clobbering whatever UR put there.
+    # If codename detection failed, try stretch first (most UR e-Series),
+    # then fall through to buster.
+    mkdir -p /etc/apt/sources.list.d /etc/apt/apt.conf.d
+    echo 'Acquire::Check-Valid-Until "false";' \
+        > /etc/apt/apt.conf.d/99-urcap-vnc-archive
+
     case "${CODENAME}" in
-        stretch|buster|jessie)
-            log "apt sources point at EOL mirror — rewriting to archive.debian.org"
-            for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
-                [ -f "$f" ] || continue
-                # Back up once (first rewrite only).
-                [ ! -f "${f}.pre-urcap" ] && cp "$f" "${f}.pre-urcap" 2>/dev/null || true
-                # Point *.debian.org mirrors at archive; strip deb-src lines
-                # (archive doesn't carry sources) and any updates/backports
-                # dists that archive.debian.org refuses to serve.
-                sed -i -E \
-                    -e 's|https?://(deb|security|ftp|httpredir)\.debian\.org|http://archive.debian.org|g' \
-                    -e '/deb-src/d' \
-                    -e "/${CODENAME}-updates/d" \
-                    -e "/${CODENAME}-backports/d" \
-                    "$f" 2>>"${DAEMON_LOG}" || true
-            done
-            # archive.debian.org stops updating Release files, so Valid-Until
-            # eventually expires. Tell apt to ignore that on this robot.
-            mkdir -p /etc/apt/apt.conf.d
-            echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99-urcap-vnc-archive
+        jessie|stretch|buster)
+            log "adding archive.debian.org ${CODENAME} main to apt sources"
+            cat > /etc/apt/sources.list.d/urcap-vnc-archive.list <<EOF
+deb http://archive.debian.org/debian ${CODENAME} main contrib
+deb http://archive.debian.org/debian-security ${CODENAME}/updates main contrib
+EOF
+            ;;
+        bullseye|bookworm)
+            # Still live mirrors; just make sure main is present. Don't
+            # touch sources.list — the live dist should have x11vnc already.
+            log "dist ${CODENAME} is live — no source rewrite, relying on existing mirrors"
             ;;
         *)
-            log "apt sources left untouched (dist=${CODENAME:-unknown} not in EOL rewrite list)"
+            log "codename still unknown — adding stretch AND buster archive sources as blind fallback"
+            cat > /etc/apt/sources.list.d/urcap-vnc-archive.list <<EOF
+deb http://archive.debian.org/debian stretch main contrib
+deb http://archive.debian.org/debian-security stretch/updates main contrib
+deb http://archive.debian.org/debian buster main contrib
+deb http://archive.debian.org/debian-security buster/updates main contrib
+EOF
             ;;
     esac
+
+    # Also rewrite existing sources from EOL mirrors to archive — some UR
+    # firmware has /etc/apt/sources.list entries that 404 on deb.debian.org.
+    # This is additive with the new sources.list.d file above. Idempotent.
+    for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+        [ -f "$f" ] || continue
+        [ "$(basename "$f")" = "urcap-vnc-archive.list" ] && continue
+        [ ! -f "${f}.pre-urcap" ] && cp "$f" "${f}.pre-urcap" 2>/dev/null || true
+        sed -i -E \
+            -e 's|https?://(deb|security|ftp|httpredir)\.debian\.org|http://archive.debian.org|g' \
+            -e '/deb-src/d' \
+            "$f" 2>>"${DAEMON_LOG}" || true
+    done
 }
 
 if ! command -v x11vnc >/dev/null 2>&1; then
