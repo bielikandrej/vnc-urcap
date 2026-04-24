@@ -81,6 +81,17 @@ else
 fi
 mkdir -p "${URCAP_STATE_DIR}/sessions" 2>/dev/null || true
 
+# --- 0a2. v3.12.2 — make sibling helper scripts executable ------------------
+# The URCap `.urcap` bundle preserves Unix mode bits only when it was
+# repackaged with them set. On fresh extraction via Polyscope's URCap
+# installer some sibling scripts (diag-bundle.sh, vnc-test.sh,
+# health-probe.sh, tls-bootstrap.sh, idle-watcher.sh,
+# temp-allowlist-*.sh, vnc-audit-hook.sh) may land 644. The UI sees this
+# as "nie je executable" banners on Diag + Test rows. Fix idempotently
+# every daemon start — no-op when already +x.
+SCRIPT_SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+chmod +x "${SCRIPT_SELF_DIR}"/*.sh 2>/dev/null || true
+
 # --- 0b. Source config — v2.1.0 first, legacy fallback ----------------------
 CONFIG_FILE_NEW="/var/lib/urcap-vnc/config"
 CONFIG_FILE_LEGACY="/root/.urcap-vnc.conf"
@@ -209,11 +220,63 @@ if [ ! -s "${VNC_PASSWORD_FILE}" ] || [ "${VNC_PASSWORD_REFRESH:-false}" = "true
 fi
 
 #
-# 3. Probe DISPLAY :0
+# 3. Probe DISPLAY :0 and locate the owning Xauthority file.
 #
-if ! DISPLAY="${DISPLAY}" xdpyinfo >/dev/null 2>&1; then
-    log "WARNING: xdpyinfo could not probe DISPLAY=${DISPLAY}; continuing anyway"
-    log "(x11vnc will retry via -auth guess and -findauth)"
+# v3.12.2 — On Polyscope 5 e-Series the Xorg server for DISPLAY :0 is
+# owned by the `ur` user (uid 1000). x11vnc running as root can't attach
+# to that display without an -auth pointing at the owner's Xauthority
+# cookie. `-auth guess` reads /proc/<xorg-pid>/environ to find
+# XAUTHORITY, which silently fails on hardened /proc mounts (noticed on
+# Polyscope 5.25.1.130388). Do our own walk through the likely paths.
+#
+# Stash the result in XAUTH_FILE — the arg block below picks it up;
+# empty string means "fall back to -auth guess + hope for the best".
+XAUTH_FILE=""
+XORG_OWNER=""
+if [ -r /tmp/.X0-lock ]; then
+    XORG_OWNER="$(stat -c %U /tmp/.X0-lock 2>/dev/null || echo '')"
+    [ -n "${XORG_OWNER}" ] && log "Xorg :0 owned by user '${XORG_OWNER}'"
+fi
+
+# Path candidates in priority order. First readable one wins.
+for candidate in \
+        "${XORG_OWNER:+/home/${XORG_OWNER}/.Xauthority}" \
+        /home/ur/.Xauthority \
+        /home/polyscope/.Xauthority \
+        /root/.Xauthority \
+        "${XORG_OWNER:+/run/user/$(id -u "${XORG_OWNER}" 2>/dev/null)/gdm/Xauthority}" \
+        /var/lib/lightdm/.Xauthority \
+        /tmp/.X0-auth ; do
+    [ -z "${candidate}" ] && continue
+    if [ -r "${candidate}" ]; then
+        XAUTH_FILE="${candidate}"
+        log "Xauthority located: ${XAUTH_FILE}"
+        break
+    fi
+done
+
+# Last resort — scan /tmp for a per-session xauth cookie created by the
+# Xorg launcher (e.g. /tmp/serverauth.ABC123 or /tmp/.xauth-XXXXX).
+if [ -z "${XAUTH_FILE}" ]; then
+    FOUND="$(find /tmp -maxdepth 2 \( -name 'serverauth.*' -o -name '.xauth*' -o -name '.Xauth*' \) -readable 2>/dev/null | head -1)"
+    if [ -n "${FOUND}" ]; then
+        XAUTH_FILE="${FOUND}"
+        log "Xauthority located via /tmp scan: ${XAUTH_FILE}"
+    fi
+done
+
+if [ -n "${XAUTH_FILE}" ]; then
+    export XAUTHORITY="${XAUTH_FILE}"
+else
+    log "WARN: no Xauthority file located; will pass '-auth guess' + '-find' to x11vnc"
+fi
+
+# Now probe with the best auth we've got.
+PROBE_AUTH_ARG=""
+[ -n "${XAUTH_FILE}" ] && PROBE_AUTH_ARG="-auth ${XAUTH_FILE}"
+if ! DISPLAY="${DISPLAY}" xdpyinfo ${PROBE_AUTH_ARG} >/dev/null 2>&1; then
+    log "WARNING: xdpyinfo could not probe DISPLAY=${DISPLAY} (auth=${XAUTH_FILE:-guess})"
+    log "         continuing — x11vnc has its own -findauth path as a fallback"
 fi
 
 #
@@ -287,7 +350,6 @@ IDLE_WATCHER="${SCRIPT_DIR}/idle-watcher.sh"
 
 ARGS=(
     "-display"   "${DISPLAY}"
-    "-auth"      "guess"
     "-rfbauth"   "${VNC_PASSWORD_FILE}"
     "-rfbport"   "${VNC_PORT}"
     "-forever"
@@ -296,6 +358,16 @@ ARGS=(
     "-logappend" "/var/log/urcap-vnc.log"
     "-tag"       "urcap-vnc"
 )
+
+# v3.12.2 — prefer the Xauthority file we located in step 3 over x11vnc's
+# own `guess` heuristic (which fails silently on hardened /proc mounts).
+# If we didn't find a file, keep `-auth guess` and add `-findauth` so
+# x11vnc scans /tmp and /home for a cookie itself.
+if [ -n "${XAUTH_FILE}" ]; then
+    ARGS+=( "-auth" "${XAUTH_FILE}" )
+else
+    ARGS+=( "-auth" "guess" "-findauth" )
+fi
 
 # --- Max clients (C4) -------------------------------------------------------
 # -connect_or_exit N  -> keep at most N clients, refuse the (N+1)th
@@ -336,6 +408,13 @@ fi
 
 log "starting: ${X11VNC_BIN} ${ARGS[*]}"
 
+# v3.12.2 — capture x11vnc stderr into the log file as well. x11vnc's
+# -logappend writes its own log, but FATAL pre-init errors (can't
+# connect to display, bad auth, port taken) print to stderr before the
+# logger is set up. Without this redirect those errors are lost and
+# daemon goes to ERROR with no trace.
+X11VNC_STDERR_LOG="/var/log/urcap-vnc.log"
+
 #
 # 6. Fork idle-watcher sibling (v3.0.0 C2) — it will self-terminate when
 #    x11vnc dies.  We grab the x11vnc PID *after* exec via a tiny shim:
@@ -343,7 +422,7 @@ log "starting: ${X11VNC_BIN} ${ARGS[*]}"
 #    otherwise we run x11vnc in the foreground and relay signals.
 #
 if [ "${IDLE_TIMEOUT_MIN}" -gt 0 ] && [ -x "${IDLE_WATCHER}" ]; then
-    "${X11VNC_BIN}" "${ARGS[@]}" &
+    "${X11VNC_BIN}" "${ARGS[@]}" 2>>"${X11VNC_STDERR_LOG}" &
     X11VNC_PID=$!
     log "started x11vnc pid=${X11VNC_PID}; spawning idle-watcher (${IDLE_TIMEOUT_MIN}min)"
     "${IDLE_WATCHER}" "${IDLE_TIMEOUT_MIN}" "${X11VNC_PID}" "${DISPLAY}" &
@@ -354,6 +433,7 @@ if [ "${IDLE_TIMEOUT_MIN}" -gt 0 ] && [ -x "${IDLE_WATCHER}" ]; then
     kill "${WATCHER_PID}" 2>/dev/null || true
     exit "${RC}"
 else
-    # No watcher → exec replacement so Polyscope daemon supervision tracks the real PID
-    exec "${X11VNC_BIN}" "${ARGS[@]}"
+    # No watcher → exec replacement so Polyscope daemon supervision tracks
+    # the real PID. Redirect stderr so pre-init x11vnc errors reach the log.
+    exec "${X11VNC_BIN}" "${ARGS[@]}" 2>>"${X11VNC_STDERR_LOG}"
 fi

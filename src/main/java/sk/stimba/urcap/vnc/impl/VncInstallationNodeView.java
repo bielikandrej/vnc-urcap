@@ -335,7 +335,7 @@ public class VncInstallationNodeView
                 BorderFactory.createLineBorder(COLOR_FAIL, 1),
                 BorderFactory.createEmptyBorder(6, 10, 6, 10)));
         easybotBanner.setAlignmentX(Component.LEFT_ALIGNMENT);
-        easybotBanner.setMaximumSize(new Dimension(640, 36));
+        easybotBanner.setMaximumSize(new Dimension(Integer.MAX_VALUE, 48));
         panel.add(easybotBanner);
 
         // --- Core network fields ---
@@ -929,7 +929,7 @@ public class VncInstallationNodeView
                 BorderFactory.createLineBorder(COLOR_FAIL, 1),
                 BorderFactory.createEmptyBorder(6, 10, 6, 10)));
         tlsWarningBanner.setAlignmentX(Component.LEFT_ALIGNMENT);
-        tlsWarningBanner.setMaximumSize(new Dimension(640, 60));
+        tlsWarningBanner.setMaximumSize(new Dimension(Integer.MAX_VALUE, 72));
         tlsWarningBanner.setVisible(false); // shown only when TLS off
         return tlsWarningBanner;
     }
@@ -1170,7 +1170,7 @@ public class VncInstallationNodeView
                 ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
                 ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         sp.setPreferredSize(new Dimension(640, 140));
-        sp.setMaximumSize(new Dimension(640, 140));
+        sp.setMaximumSize(new Dimension(Integer.MAX_VALUE, 140));
         sp.setAlignmentX(Component.LEFT_ALIGNMENT);
         wrap.add(sp);
 
@@ -1195,7 +1195,7 @@ public class VncInstallationNodeView
         tempAllowTable.getColumnModel().getColumn(2).setPreferredWidth(340);
         JScrollPane sp = new JScrollPane(tempAllowTable);
         sp.setPreferredSize(new Dimension(640, 100));
-        sp.setMaximumSize(new Dimension(640, 100));
+        sp.setMaximumSize(new Dimension(Integer.MAX_VALUE, 100));
         sp.setAlignmentX(Component.LEFT_ALIGNMENT);
         wrap.add(sp);
 
@@ -1491,7 +1491,11 @@ public class VncInstallationNodeView
     }
 
     private JLabel subtitle(String text) {
-        JLabel l = new JLabel("<html><body style='width:520px'>" + text + "</body></html>");
+        // v3.12.2 — drop the hard 520px width cap. Let Swing's HTML view
+        // flow to whatever width BoxLayout + JScrollPane viewport give us,
+        // so on narrow pendant screens the paragraph wraps instead of
+        // clipping past the right edge.
+        JLabel l = new JLabel("<html>" + text + "</html>");
         l.setAlignmentX(Component.LEFT_ALIGNMENT);
         return l;
     }
@@ -1514,7 +1518,7 @@ public class VncInstallationNodeView
 
     private JSeparator separator() {
         JSeparator s = new JSeparator();
-        s.setMaximumSize(new Dimension(640, 4));
+        s.setMaximumSize(new Dimension(Integer.MAX_VALUE, 4));
         s.setAlignmentX(Component.LEFT_ALIGNMENT);
         return s;
     }
