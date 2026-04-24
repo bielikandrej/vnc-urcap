@@ -511,10 +511,24 @@ public class VncInstallationNodeView
         // explicit contribution.updateEasybotBanner(true) callback in Sprint 2.
     }
 
+    /**
+     * v3.12.6 — escape raw user-facing text then wrap in &lt;html&gt; so long
+     * single-line error messages (e.g. "… nie je executable
+     * (/root/.urcaps/long/nested/path/script.sh)") word-wrap within the
+     * URCap content area instead of punching out past its right edge.
+     */
+    static String htmlWrap(String s) {
+        if (s == null) return " ";
+        String escaped = s.replace("&", "&amp;")
+                          .replace("<", "&lt;")
+                          .replace(">", "&gt;");
+        return "<html>" + escaped + "</html>";
+    }
+
     public void updateStatus(String msg, boolean error) {
         if (statusLabel == null) return;
         if (msg == null) { statusLabel.setText(" "); return; }
-        statusLabel.setText(msg);
+        statusLabel.setText(htmlWrap(msg));
         statusLabel.setForeground(error ? COLOR_FAIL : COLOR_OK);
     }
 
@@ -1110,11 +1124,14 @@ public class VncInstallationNodeView
                         testBtn.setEnabled(true);
                         try {
                             String res = get();
-                            testConnResultLabel.setText(res);
+                            // v3.12.6 — wrap in <html> so long file-path error
+                            // messages word-wrap inside the narrow URCap
+                            // content area instead of clipping off the right.
+                            testConnResultLabel.setText(htmlWrap(res));
                             testConnResultLabel.setForeground(
                                     res != null && res.startsWith("✓") ? COLOR_OK : COLOR_FAIL);
                         } catch (Exception ex) {
-                            testConnResultLabel.setText("✗ " + ex.getMessage());
+                            testConnResultLabel.setText(htmlWrap("✗ " + ex.getMessage()));
                             testConnResultLabel.setForeground(COLOR_FAIL);
                         }
                     }

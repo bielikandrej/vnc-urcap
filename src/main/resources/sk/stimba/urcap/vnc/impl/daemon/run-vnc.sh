@@ -276,12 +276,30 @@ fix_apt_sources() {
     echo 'Acquire::Check-Valid-Until "false";' \
         > /etc/apt/apt.conf.d/99-urcap-vnc-archive
 
+    # v3.12.6 — use [trusted=yes] on the new archive source. For very old
+    # dists (Jessie / Wheezy) the InRelease file doesn't exist on
+    # archive.debian.org and the GPG keys in the factory keyring have
+    # expired. Without trusted=yes, apt refuses to fetch the package
+    # indexes. With trusted=yes, apt skips signature verification for
+    # this one source — safe enough: the whole point of the relay is
+    # that traffic rides an outbound TLS tunnel, the apt archive is
+    # HTTP but pinned to a specific Debian mirror.
+    #
+    # Also drop debian-security for jessie — archive.debian.org never
+    # carried a complete jessie-security set and apt errors on Err
+    # InRelease there.
     case "${CODENAME}" in
-        jessie|stretch|buster)
-            log "adding archive.debian.org ${CODENAME} main to apt sources"
+        jessie)
+            log "adding archive.debian.org jessie main to apt sources [trusted=yes]"
             cat > /etc/apt/sources.list.d/urcap-vnc-archive.list <<EOF
-deb http://archive.debian.org/debian ${CODENAME} main contrib
-deb http://archive.debian.org/debian-security ${CODENAME}/updates main contrib
+deb [trusted=yes] http://archive.debian.org/debian jessie main contrib
+EOF
+            ;;
+        stretch|buster)
+            log "adding archive.debian.org ${CODENAME} main + security to apt sources [trusted=yes]"
+            cat > /etc/apt/sources.list.d/urcap-vnc-archive.list <<EOF
+deb [trusted=yes] http://archive.debian.org/debian ${CODENAME} main contrib
+deb [trusted=yes] http://archive.debian.org/debian-security ${CODENAME}/updates main contrib
 EOF
             ;;
         bullseye|bookworm)
@@ -290,12 +308,11 @@ EOF
             log "dist ${CODENAME} is live — no source rewrite, relying on existing mirrors"
             ;;
         *)
-            log "codename still unknown — adding stretch AND buster archive sources as blind fallback"
+            log "codename still unknown — adding jessie/stretch/buster archive sources as blind fallback [trusted=yes]"
             cat > /etc/apt/sources.list.d/urcap-vnc-archive.list <<EOF
-deb http://archive.debian.org/debian stretch main contrib
-deb http://archive.debian.org/debian-security stretch/updates main contrib
-deb http://archive.debian.org/debian buster main contrib
-deb http://archive.debian.org/debian-security buster/updates main contrib
+deb [trusted=yes] http://archive.debian.org/debian jessie main contrib
+deb [trusted=yes] http://archive.debian.org/debian stretch main contrib
+deb [trusted=yes] http://archive.debian.org/debian buster main contrib
 EOF
             ;;
     esac
@@ -303,12 +320,18 @@ EOF
     # Also rewrite existing sources from EOL mirrors to archive — some UR
     # firmware has /etc/apt/sources.list entries that 404 on deb.debian.org.
     # This is additive with the new sources.list.d file above. Idempotent.
+    #
+    # v3.12.6 — use '#' as sed delimiter. '|' collides with the
+    # alternation group (deb|security|...) and triggers
+    #   sed: -e expression #1, char 26: unknown option to 's'
+    # on BSD/busybox sed (which UR's image uses). '#' is not otherwise
+    # used in apt source URLs so it's a safe delimiter here.
     for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
         [ -f "$f" ] || continue
         [ "$(basename "$f")" = "urcap-vnc-archive.list" ] && continue
         [ ! -f "${f}.pre-urcap" ] && cp "$f" "${f}.pre-urcap" 2>/dev/null || true
         sed -i -E \
-            -e 's|https?://(deb|security|ftp|httpredir)\.debian\.org|http://archive.debian.org|g' \
+            -e 's#https?://(deb|security|ftp|httpredir)\.debian\.org#http://archive.debian.org#g' \
             -e '/deb-src/d' \
             "$f" 2>>"${DAEMON_LOG}" || true
     done

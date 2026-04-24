@@ -130,6 +130,7 @@ sk.stimba.urcap.vnc.impl.VncInstallationNodeService :: public getTitle(Locale) -
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: package static <clinit>() -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public <init>() -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public buildUI(JPanel, VncInstallationNodeContribution) -> void
+sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: package static htmlWrap(String) -> String
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public setKeyboardInputFactory(KeyboardInputFactory) -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public startTempAllowlistTimer() -> void
 sk.stimba.urcap.vnc.impl.VncInstallationNodeView :: public stopSprint2Timers() -> void
