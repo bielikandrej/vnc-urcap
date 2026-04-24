@@ -630,10 +630,10 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
      * should invoke from a worker thread to avoid freezing the EDT.
      */
     public String runDiagBundle() {
-        if (!Files.isExecutable(Paths.get(DIAG_BUNDLE))) {
-            return "ERROR: diag-bundle.sh nie je executable (" + DIAG_BUNDLE + "). "
-                    + "Spusti post-install.sh cez SSH.";
-        }
+        // v3.12.7 — scripts are invoked via `/bin/bash <path>`, so Unix +x
+        // bit is irrelevant to ProcessBuilder. Drop the Files.isExecutable
+        // precheck that was gating the UI with a misleading red banner on
+        // URCap installs where Polyscope extracts helpers at 644.
         try {
             ProcessBuilder pb = new ProcessBuilder("/bin/bash", DIAG_BUNDLE);
             pb.redirectErrorStream(false); // keep stderr separate so stdout = path only
@@ -687,10 +687,7 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
         // Only allow printable ASCII in comment — keep it simple for the tab-separated log file
         comment = comment.replaceAll("[\\t\\r\\n]", " ").replaceAll("[^\\x20-\\x7E]", "");
 
-        if (!Files.isExecutable(Paths.get(TEMP_ALLOW_ADD))) {
-            return "temp-allowlist-add.sh nie je executable (" + TEMP_ALLOW_ADD + "). "
-                    + "Spusti post-install.sh cez SSH.";
-        }
+        // v3.12.7 — same rationale as runDiagBundle: /bin/bash ignores +x.
         try {
             ProcessBuilder pb = new ProcessBuilder("/bin/bash", TEMP_ALLOW_ADD,
                     ip.trim(), String.valueOf(ttlSec), comment);
@@ -768,9 +765,7 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
      * sanity-check it matches their Settings input.
      */
     public String testConnection() {
-        if (!Files.isExecutable(Paths.get(VNC_TEST))) {
-            return "vnc-test.sh nie je executable (" + VNC_TEST + ").";
-        }
+        // v3.12.7 — /bin/bash invocation ignores +x, see runDiagBundle.
         try {
             ProcessBuilder pb = new ProcessBuilder("/bin/bash", VNC_TEST);
             pb.redirectErrorStream(true);

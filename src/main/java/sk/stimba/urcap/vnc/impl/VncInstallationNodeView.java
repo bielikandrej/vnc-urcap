@@ -1181,7 +1181,7 @@ public class VncInstallationNodeView
         hdr.add(Box.createHorizontalGlue());
         wrap.add(hdr);
 
-        logTailArea = new JTextArea(8, 70);
+        logTailArea = new JTextArea(20, 70); // v3.12.7 — bigger log window so operator doesn't scroll inside the tail so often
         logTailArea.setEditable(false);
         logTailArea.setFont(new Font("Monospaced", Font.PLAIN, 11));
         logTailArea.setBackground(new Color(0xFAFAFA));
@@ -1189,8 +1189,8 @@ public class VncInstallationNodeView
         JScrollPane sp = new JScrollPane(logTailArea,
                 ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
                 ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        sp.setPreferredSize(new Dimension(640, 140));
-        sp.setMaximumSize(new Dimension(Integer.MAX_VALUE, 140));
+        sp.setPreferredSize(new Dimension(640, 340));
+        sp.setMaximumSize(new Dimension(Integer.MAX_VALUE, 340));
         sp.setAlignmentX(Component.LEFT_ALIGNMENT);
         wrap.add(sp);
 

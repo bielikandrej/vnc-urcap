@@ -338,7 +338,41 @@ EOF
 }
 
 if ! command -v x11vnc >/dev/null 2>&1; then
-    log "x11vnc not found; attempting apt-get install (robot must have internet)"
+    log "x11vnc not found; attempting install"
+    export DEBIAN_FRONTEND=noninteractive
+
+    # v3.12.7 — prefer bundled .deb files shipped inside the .urcap so UR
+    # robots with throttled / restricted / archive-only apt paths don't
+    # need to fetch ~1.7 MB over a 310 B/s LTE link. dpkg -i is orders of
+    # magnitude faster (local file I/O) and has no GPG / mirror dance.
+    BUNDLED_DEBS="${SCRIPT_SELF_DIR}/x11vnc-debs"
+    if [ -d "${BUNDLED_DEBS}" ] && ls "${BUNDLED_DEBS}"/*.deb >/dev/null 2>&1; then
+        log "installing bundled x11vnc .debs from ${BUNDLED_DEBS}"
+        # Install libs before the x11vnc binary so dependency order is
+        # satisfied on a best-effort basis. --force-confnew just picks
+        # newer conffiles without prompting — x11vnc has no interactive
+        # conffiles so this is essentially a no-op but keeps dpkg quiet.
+        dpkg -i --force-confnew \
+            "${BUNDLED_DEBS}"/libavahi-common3_*.deb \
+            "${BUNDLED_DEBS}"/libavahi-client3_*.deb \
+            "${BUNDLED_DEBS}"/libjpeg62-turbo_*.deb \
+            "${BUNDLED_DEBS}"/libvncserver0_*.deb \
+            "${BUNDLED_DEBS}"/libvncclient0_*.deb \
+            "${BUNDLED_DEBS}"/x11vnc-data_*.deb \
+            "${BUNDLED_DEBS}"/x11vnc_*.deb \
+            2>&1 | tee -a "${DAEMON_LOG}" || true
+        # Any already-installed-newer-version warnings are fine — check
+        # for the final artefact instead of dpkg's exit code.
+        if command -v x11vnc >/dev/null 2>&1; then
+            log "bundled x11vnc installed successfully"
+        else
+            log "bundled dpkg left x11vnc still missing — falling through to apt path"
+        fi
+    fi
+fi
+
+if ! command -v x11vnc >/dev/null 2>&1; then
+    log "falling back to apt-get install (bundled debs missing or partial)"
     export DEBIAN_FRONTEND=noninteractive
 
     fix_apt_sources
