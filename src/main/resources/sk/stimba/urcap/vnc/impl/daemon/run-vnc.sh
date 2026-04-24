@@ -205,16 +205,81 @@ trap 'rm -f "${LOCK_FILE}"' EXIT
 #
 # 1. Install x11vnc if not present (robot must be online on first start)
 #
+# v3.12.4 — UR e-Series ships with Debian 9 (Stretch) or 10 (Buster), both EOL.
+# deb.debian.org + security.debian.org stop serving EOL dists, so a fresh
+# `apt-get update` fails with 404s even on a robot with perfectly working
+# internet. Rewrite apt sources to archive.debian.org (which still serves
+# EOL) before the first attempt, then retry. Idempotent — runs every daemon
+# boot but only writes sources files if they still point at the live
+# mirrors.
+fix_apt_sources() {
+    # Detect Debian codename. /etc/os-release is the canonical source.
+    CODENAME=""
+    if [ -r /etc/os-release ]; then
+        . /etc/os-release
+        CODENAME="${VERSION_CODENAME:-}"
+    fi
+    if [ -z "${CODENAME}" ] && [ -r /etc/debian_version ]; then
+        # Fallback — map numeric release to codename
+        case "$(cat /etc/debian_version)" in
+            9.*|stretch/*)  CODENAME="stretch" ;;
+            10.*|buster/*)  CODENAME="buster" ;;
+            11.*|bullseye/*) CODENAME="bullseye" ;;
+        esac
+    fi
+    log "Debian codename detected: ${CODENAME:-unknown}"
+
+    # Only rewrite for EOL dists. Bullseye is still alive — leave alone.
+    case "${CODENAME}" in
+        stretch|buster|jessie)
+            log "apt sources point at EOL mirror — rewriting to archive.debian.org"
+            for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+                [ -f "$f" ] || continue
+                # Back up once (first rewrite only).
+                [ ! -f "${f}.pre-urcap" ] && cp "$f" "${f}.pre-urcap" 2>/dev/null || true
+                # Point *.debian.org mirrors at archive; strip deb-src lines
+                # (archive doesn't carry sources) and any updates/backports
+                # dists that archive.debian.org refuses to serve.
+                sed -i -E \
+                    -e 's|https?://(deb|security|ftp|httpredir)\.debian\.org|http://archive.debian.org|g' \
+                    -e '/deb-src/d' \
+                    -e "/${CODENAME}-updates/d" \
+                    -e "/${CODENAME}-backports/d" \
+                    "$f" 2>>"${DAEMON_LOG}" || true
+            done
+            # archive.debian.org stops updating Release files, so Valid-Until
+            # eventually expires. Tell apt to ignore that on this robot.
+            mkdir -p /etc/apt/apt.conf.d
+            echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99-urcap-vnc-archive
+            ;;
+        *)
+            log "apt sources left untouched (dist=${CODENAME:-unknown} not in EOL rewrite list)"
+            ;;
+    esac
+}
+
 if ! command -v x11vnc >/dev/null 2>&1; then
     log "x11vnc not found; attempting apt-get install (robot must have internet)"
     export DEBIAN_FRONTEND=noninteractive
-    if apt-get update -qq && apt-get install -y -qq x11vnc; then
-        log "x11vnc installed successfully"
-    else
-        log "ERROR: apt-get install x11vnc failed. Robot offline? Check IXrouter uplink."
-        log "Fallback: manually install .deb: dpkg -i /root/x11vnc*.deb"
+
+    fix_apt_sources
+
+    # Run update + install and mirror their output into the daemon log so
+    # the UI's Log tail carries the REAL apt error instead of just our
+    # generic "failed" line.
+    log "running: apt-get update"
+    if ! apt-get update 2>&1 | tee -a "${DAEMON_LOG}"; then
+        log "ERROR: apt-get update failed — see lines above in Log tail"
+        log "Fallback: place x11vnc .deb at /root/x11vnc*.deb and run dpkg -i manually"
         exit 10
     fi
+    log "running: apt-get install -y x11vnc"
+    if ! apt-get install -y x11vnc 2>&1 | tee -a "${DAEMON_LOG}"; then
+        log "ERROR: apt-get install x11vnc failed — see lines above in Log tail"
+        log "Fallback: place x11vnc .deb at /root/x11vnc*.deb and run dpkg -i manually"
+        exit 10
+    fi
+    log "x11vnc installed successfully"
 fi
 
 X11VNC_BIN="$(command -v x11vnc)"
