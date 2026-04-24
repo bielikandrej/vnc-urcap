@@ -41,6 +41,7 @@ import com.ur.urcap.api.domain.userinteraction.keyboard.KeyboardTextInput;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import java.awt.BorderLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
@@ -301,8 +302,18 @@ public class VncInstallationNodeView
     }
 
     @Override
-    public void buildUI(JPanel panel, final VncInstallationNodeContribution contribution) {
+    public void buildUI(JPanel outer, final VncInstallationNodeContribution contribution) {
         this.contribution = contribution;
+
+        // v3.12.1 — wrap content in a JScrollPane. Without this, Polyscope's
+        // fixed-size URCap container clips everything below ~Portal pairing
+        // (Stav systému, Stav démona, Diagnostika, Start/Stop button row)
+        // and operators on a physical pendant can't scroll to reach them.
+        // `outer` is the JPanel URCap API hands us; we take full BorderLayout
+        // control and add a JScrollPane with a local `panel` inside so every
+        // panel.add(...) call below keeps working unchanged.
+        outer.setLayout(new BorderLayout());
+        JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 
         panel.add(header("STIMBA VNC Server pre IXON Cloud"));
@@ -392,6 +403,17 @@ public class VncInstallationNodeView
 
         panel.add(separator());
         panel.add(buildButtonRow());
+
+        // Wrap the stacked content in a scroll pane so the pendant gets a
+        // scrollbar (touch-drag on teach pendant also works because Swing
+        // JScrollPane intercepts drag gestures on JScrollBar when running
+        // inside Polyscope).
+        JScrollPane scroll = new JScrollPane(panel,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setBorder(null);
+        scroll.getVerticalScrollBar().setUnitIncrement(20);
+        outer.add(scroll, BorderLayout.CENTER);
     }
 
     // --- Update API (called by contribution on openView() and Timer tick) ---
