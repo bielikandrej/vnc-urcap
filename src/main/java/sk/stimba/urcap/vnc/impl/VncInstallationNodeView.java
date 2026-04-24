@@ -41,7 +41,9 @@ import com.ur.urcap.api.domain.userinteraction.keyboard.KeyboardTextInput;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.Scrollable;
 import java.awt.BorderLayout;
+import java.awt.Rectangle;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
@@ -305,15 +307,16 @@ public class VncInstallationNodeView
     public void buildUI(JPanel outer, final VncInstallationNodeContribution contribution) {
         this.contribution = contribution;
 
-        // v3.12.1 — wrap content in a JScrollPane. Without this, Polyscope's
-        // fixed-size URCap container clips everything below ~Portal pairing
-        // (Stav systému, Stav démona, Diagnostika, Start/Stop button row)
-        // and operators on a physical pendant can't scroll to reach them.
-        // `outer` is the JPanel URCap API hands us; we take full BorderLayout
-        // control and add a JScrollPane with a local `panel` inside so every
-        // panel.add(...) call below keeps working unchanged.
+        // v3.12.1 — wrap content in a JScrollPane for vertical overflow.
+        // v3.12.3 — inner panel implements Scrollable so tracksViewportWidth=true
+        // forces BoxLayout children to match the viewport width. Without this,
+        // long-text labels (error messages with file paths, TLS banner) push
+        // preferredWidth past the viewport and HORIZONTAL_SCROLLBAR_NEVER just
+        // clips the right edge on a narrow pendant screen (Polyscope sidebar
+        // takes ~30% of the pendant width — our content area is ~840px wide,
+        // NOT the full display).
         outer.setLayout(new BorderLayout());
-        JPanel panel = new JPanel();
+        ScrollableContentPanel panel = new ScrollableContentPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 
         panel.add(header("STIMBA VNC Server pre IXON Cloud"));
@@ -1521,5 +1524,24 @@ public class VncInstallationNodeView
         s.setMaximumSize(new Dimension(Integer.MAX_VALUE, 4));
         s.setAlignmentX(Component.LEFT_ALIGNMENT);
         return s;
+    }
+
+    /**
+     * v3.12.3 — JPanel + Scrollable so JScrollPane constrains our content to
+     * the viewport width. Polyscope's URCap content area is narrower than
+     * the full pendant display (there's a sidebar on the left with General /
+     * Motion / Safety / URCaps tabs) — we must respect that width or long-
+     * text labels punch out past the right edge. tracksViewportWidth=true
+     * tells JScrollPane to match the panel width to the viewport, so
+     * BoxLayout can then wrap children into that width.
+     */
+    private static final class ScrollableContentPanel extends JPanel implements Scrollable {
+        @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override public int getScrollableUnitIncrement(Rectangle vis, int axis, int dir) { return 20; }
+        @Override public int getScrollableBlockIncrement(Rectangle vis, int axis, int dir) {
+            return axis == javax.swing.SwingConstants.VERTICAL ? vis.height : vis.width;
+        }
+        @Override public boolean getScrollableTracksViewportWidth()  { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
     }
 }

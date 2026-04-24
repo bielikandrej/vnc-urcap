@@ -137,7 +137,21 @@ else
     LOG_TAG="urcap-vnc"
 fi
 
-log() { logger -t "${LOG_TAG}" "$*"; echo "[${LOG_TAG}] $*"; }
+# v3.12.3 — also append every log line to /var/log/urcap-vnc.log so the UI's
+# "Log tail" section sees it. Before this, only x11vnc's own `-logappend`
+# wrote there — but that only runs AFTER x11vnc binds the port. If x11vnc
+# crashes during bootstrap (missing binary, bad Xauth, TLS cert fail),
+# nothing ever reached the log file and the user was blind.
+DAEMON_LOG="/var/log/urcap-vnc.log"
+touch "${DAEMON_LOG}" 2>/dev/null || true
+chmod 644 "${DAEMON_LOG}" 2>/dev/null || true
+log() {
+    local msg="$*"
+    logger -t "${LOG_TAG}" "${msg}" 2>/dev/null || true
+    local line="$(date '+%Y-%m-%d %H:%M:%S') [${LOG_TAG}] ${msg}"
+    echo "${line}"
+    echo "${line}" >> "${DAEMON_LOG}" 2>/dev/null || true
+}
 
 log "v3.0.0 starting — config source: ${CONFIG_SOURCED}"
 log "IXROUTER_IP=${IXROUTER_IP} VNC_PORT=${VNC_PORT} VIEW_ONLY=${VNC_VIEW_ONLY} STRONG_PWD=${URCAP_VNC_REQUIRE_STRONG_PWD}"
