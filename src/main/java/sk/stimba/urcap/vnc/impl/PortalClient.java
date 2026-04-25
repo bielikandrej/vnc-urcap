@@ -32,7 +32,7 @@ public final class PortalClient {
     public static final String DEFAULT_PORTAL_URL = "https://portal.stimba.sk";
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS    = 15_000;
-    public static final String URCAP_VERSION    = "stimba-vnc-urcap/3.12.8";
+    public static final String URCAP_VERSION    = "stimba-vnc-urcap/3.12.9";
 
     private final String portalUrl;
 
@@ -196,11 +196,60 @@ public final class PortalClient {
         if (result != null) body.put("result", result);
         if (error != null)  body.put("error", error);
         try {
-            HttpResult r = patch("/api/agent/commands", token, deviceId, toJson(body));
+            // v3.12.9 — POST + X-HTTP-Method-Override:PATCH instead of native
+            // PATCH. Polyscope's JDK 8 base build often throws ProtocolException
+            // on setRequestMethod("PATCH") and the HttpURLConnection internal
+            // fallback path used to silently drop on certain UR firmware. The
+            // portal /api/agent/commands route honours the override header
+            // (added 2026-04-25 commit 5594632) and routes us into the same
+            // PATCH handler. POST is universally safe; this avoids a
+            // class-of-bug rather than catching it.
+            HttpResult r = postWithMethodOverride("/api/agent/commands", "PATCH", token, deviceId, toJson(body));
             return r.code >= 200 && r.code < 300;
         } catch (IOException e) {
             LOG.warning("ackCommand failed: " + e.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * v3.12.9 — explicit POST with X-HTTP-Method-Override header so we never
+     * rely on Java's PATCH support. Portal honours the override and routes
+     * to the matching handler.
+     */
+    private HttpResult postWithMethodOverride(String path, String overrideMethod,
+                                              String bearerToken, String deviceIdHeader,
+                                              String bodyJson) throws IOException {
+        URL url = new URL(this.portalUrl + path);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        try {
+            conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            conn.setReadTimeout(READ_TIMEOUT_MS);
+            conn.setDoOutput(true);
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("X-HTTP-Method-Override", overrideMethod);
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setRequestProperty("User-Agent", URCAP_VERSION);
+            if (bearerToken != null) {
+                conn.setRequestProperty("Authorization", "Bearer " + bearerToken);
+            }
+            if (deviceIdHeader != null) {
+                conn.setRequestProperty("X-Stimba-Device-Id", deviceIdHeader);
+            }
+            if (conn instanceof javax.net.ssl.HttpsURLConnection) {
+                CertPinner.apply((javax.net.ssl.HttpsURLConnection) conn);
+            }
+            byte[] bytes = bodyJson.getBytes(StandardCharsets.UTF_8);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(bytes);
+            }
+            int code = conn.getResponseCode();
+            InputStream in = (code >= 200 && code < 400) ? conn.getInputStream() : conn.getErrorStream();
+            String body = (in == null) ? "" : readAll(in);
+            return new HttpResult(code, body);
+        } finally {
+            conn.disconnect();
         }
     }
 

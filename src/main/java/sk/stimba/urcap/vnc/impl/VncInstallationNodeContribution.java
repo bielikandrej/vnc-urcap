@@ -1045,10 +1045,55 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
             switch (toolName == null ? "" : toolName) {
                 case "dashboard_power_on":
                     return ackFromDashboard(dashboardClient.execute("power on"));
+                case "dashboard_power_off":
+                    // v3.12.9 — paired counterpart to power_on. UR Polyscope Local
+                    // Control mode allows this only from a 127.0.0.1 client (which
+                    // URCap is). External Dashboard clients (via IXrouter VPN) get
+                    // "Command is not allowed due to safety reasons" without
+                    // Remote Control mode toggled. Going through URCap unblocks
+                    // remote-from-portal power-off without that pendant toggle.
+                    return ackFromDashboard(dashboardClient.execute("power off"));
                 case "dashboard_brake_release":
                     return ackFromDashboard(dashboardClient.execute("brake release"));
-                case "dashboard_safetymode":
-                    return ackFromDashboard(dashboardClient.execute("safetymode normal"));
+                case "dashboard_close_safety_popup":
+                    // v3.12.9 — clears the "Confirm Safety Configuration" popup
+                    // that pops up after a safety reset. Idempotent.
+                    return ackFromDashboard(dashboardClient.execute("close safety popup"));
+                case "dashboard_unlock_protective_stop":
+                    // v3.12.9 — releases protective-stop state set by force /
+                    // collision triggers. UR best practice: wait 5 s before
+                    // re-issuing motion commands. Caller should pace.
+                    return ackFromDashboard(dashboardClient.execute("unlock protective stop"));
+                case "dashboard_safetymode": {
+                    // v3.12.9 — was hardcoded "safetymode normal". Now accepts
+                    // an optional `mode` arg: normal | reduced | recovery |
+                    // safeguard_stop | system_emergency_stop |
+                    // robot_emergency_stop | violation | fault. Defaults to
+                    // "normal" for backward compat with v3.6 callers.
+                    String mode = extractArgString(argsJson, "mode");
+                    if (mode == null || mode.isEmpty()) mode = "normal";
+                    // Whitelist accepted modes — Dashboard 'safetymode' actually
+                    // ONLY accepts these in command form. Anything else triggers
+                    // a verbose error from URControl. Better to reject early.
+                    boolean ok = false;
+                    String[] allowed = { "normal", "reduced", "recovery" };
+                    for (String a : allowed) if (a.equals(mode)) { ok = true; break; }
+                    if (!ok) {
+                        return new DashboardCommandPoller.Ack(
+                            false, null,
+                            "dashboard_safetymode: mode must be one of normal | reduced | recovery (got: " + mode + ")"
+                        );
+                    }
+                    return ackFromDashboard(dashboardClient.execute("safetymode " + mode));
+                }
+                case "dashboard_shutdown":
+                    // v3.12.9 — DESTRUCTIVE. Shuts down the controller; needs
+                    // physical button to boot back. Use only when the operator
+                    // explicitly asks (UI must confirm before sending). Caller
+                    // ack arrives almost instantly because URControl just calls
+                    // `shutdown -h now` async; the daemon supervisor will tear
+                    // the URCap down within ~10 s after.
+                    return ackFromDashboard(dashboardClient.execute("shutdown"));
                 case "program_load": {
                     String name = extractArgString(argsJson, "program_name");
                     if (name == null || name.isEmpty()) {
