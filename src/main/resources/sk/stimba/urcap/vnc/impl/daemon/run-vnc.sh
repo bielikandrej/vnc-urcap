@@ -430,13 +430,29 @@ if [ -r /tmp/.X0-lock ]; then
     [ -n "${XORG_OWNER}" ] && log "Xorg :0 owned by user '${XORG_OWNER}'"
 fi
 
+# v3.12.8 — owner-aware candidate ordering. UR e-Series Polyscope on
+# Stimba 2 was observed (2026-04-25) running Xorg as root, so /root/...
+# wins; on robots where Xorg runs as `ur`, /home/ur/... wins. The
+# XORG_HOME helper resolves the owner's home directory robustly via
+# getent (busybox-safe; `id -u name` is NOT portable on busybox and was
+# triggering set -e exits in v3.12.2-7).
+XORG_HOME=""
+if [ -n "${XORG_OWNER}" ]; then
+    if [ "${XORG_OWNER}" = "root" ]; then
+        XORG_HOME="/root"
+    else
+        XORG_HOME="$(getent passwd "${XORG_OWNER}" 2>/dev/null | cut -d: -f6 || true)"
+        [ -z "${XORG_HOME}" ] && XORG_HOME="/home/${XORG_OWNER}"
+    fi
+    log "Xorg owner home: ${XORG_HOME}"
+fi
+
 # Path candidates in priority order. First readable one wins.
 for candidate in \
-        "${XORG_OWNER:+/home/${XORG_OWNER}/.Xauthority}" \
+        "${XORG_HOME:+${XORG_HOME}/.Xauthority}" \
+        /root/.Xauthority \
         /home/ur/.Xauthority \
         /home/polyscope/.Xauthority \
-        /root/.Xauthority \
-        "${XORG_OWNER:+/run/user/$(id -u "${XORG_OWNER}" 2>/dev/null)/gdm/Xauthority}" \
         /var/lib/lightdm/.Xauthority \
         /tmp/.X0-auth ; do
     [ -z "${candidate}" ] && continue
@@ -449,13 +465,19 @@ done
 
 # Last resort — scan /tmp for a per-session xauth cookie created by the
 # Xorg launcher (e.g. /tmp/serverauth.ABC123 or /tmp/.xauth-XXXXX).
+# v3.12.8 — fix `done` -> `fi` typo (was syntax error inside `if [ -z
+# XAUTH_FILE ]` block). On the UR busybox bash this exited the script
+# with non-zero on parse; combined with set -e and Polyscope daemon
+# supervisor restart, the daemon went into a tight respawn loop after
+# the "Xorg :0 owned by ..." line. Hours of head-scratching solved by
+# one keyword.
 if [ -z "${XAUTH_FILE}" ]; then
     FOUND="$(find /tmp -maxdepth 2 \( -name 'serverauth.*' -o -name '.xauth*' -o -name '.Xauth*' \) -readable 2>/dev/null | head -1)"
     if [ -n "${FOUND}" ]; then
         XAUTH_FILE="${FOUND}"
         log "Xauthority located via /tmp scan: ${XAUTH_FILE}"
     fi
-done
+fi
 
 if [ -n "${XAUTH_FILE}" ]; then
     export XAUTHORITY="${XAUTH_FILE}"
