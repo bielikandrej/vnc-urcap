@@ -24,6 +24,16 @@
 #     BEFORE the UI shows the "Zobraziť cert fingerprint" button — avoids
 #     a confusing "fingerprint n/a" state on first Polyscope open.
 #
+# v3.12.10 additions:
+#   - symlink /root/.urcaps/<id>/sk/stimba/urcap/vnc/impl/daemon -> SCRIPT_DIR.
+#     Polyscope 5.25.x extracts bundle resources into felix-cache (path
+#     ${HOME}/GUI/felix-cache/bundleNNN/data/...) instead of the older
+#     /root/.urcaps/<id>/ layout that VncInstallationNodeContribution.java
+#     hardcodes in DAEMON_DIR. Without the symlink, every ProcessBuilder
+#     diagnostic spawn (vnc-test.sh, health-probe.sh, diag-bundle.sh,
+#     temp-allowlist-add.sh) returns exit 127 / "No such file or directory"
+#     and the UI status panel reads stale or wrong values.
+#
 set -eu
 
 URCAP_STATE_DIR="/var/lib/urcap-vnc"
@@ -58,6 +68,18 @@ for s in run-vnc.sh stop-vnc.sh health-probe.sh post-install.sh \
         chmod 755 "${SCRIPT_DIR}/${s}" 2>/dev/null || true
     fi
 done
+
+# --- v3.12.10: bridge /root/.urcaps/<id> path the Java code expects ---------
+# See header for context. Idempotent: -sfn replaces stale symlink without
+# dereferencing into the target.
+URCAP_ID="sk.stimba.urcap.vnc-server"
+EXPECTED_DAEMON_DIR="/root/.urcaps/${URCAP_ID}/sk/stimba/urcap/vnc/impl/daemon"
+if mkdir -p "$(dirname "${EXPECTED_DAEMON_DIR}")" 2>/dev/null \
+   && ln -sfn "${SCRIPT_DIR}" "${EXPECTED_DAEMON_DIR}" 2>/dev/null; then
+    echo "[post-install] daemon-dir symlink: ${EXPECTED_DAEMON_DIR} -> ${SCRIPT_DIR}"
+else
+    echo "[post-install] WARN: could not create ${EXPECTED_DAEMON_DIR} symlink (diagnostics may show exit 127)"
+fi
 
 # --- eager TLS bootstrap (C1) ----------------------------------------------
 # Generate the cert + fingerprint now so the UI's "Zobraziť fingerprint"
