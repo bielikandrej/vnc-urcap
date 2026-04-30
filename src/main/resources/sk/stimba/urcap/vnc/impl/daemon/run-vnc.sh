@@ -92,6 +92,30 @@ mkdir -p "${URCAP_STATE_DIR}/sessions" 2>/dev/null || true
 SCRIPT_SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 chmod +x "${SCRIPT_SELF_DIR}"/*.sh 2>/dev/null || true
 
+# --- 0a3. v3.12.14 — bridge /root/.urcaps/<id> path the Java code expects ---
+# Polyscope 5.25.x extracts URCap bundle resources into felix-cache instead
+# of the /root/.urcaps/<id>/ layout VncInstallationNodeContribution.java
+# hardcodes for ProcessBuilder spawns of vnc-test.sh, health-probe.sh,
+# diag-bundle.sh, temp-allowlist-add.sh. Without this symlink every
+# diagnostic spawn returns exit 127 / "No such file or directory".
+#
+# v3.12.10 first attempted this in post-install.sh, but post-install.sh
+# is never invoked at runtime (no caller in run-vnc.sh or Java code), so
+# the symlink never appeared on the robot. Moving it here means it's
+# created on every daemon start (Polyscope DaemonContribution invokes
+# run-vnc.sh on URCap install, on Polyscope reboot, and on daemon
+# supervisor restart — covering every realistic install path).
+URCAP_DAEMON_LINK="/root/.urcaps/sk.stimba.urcap.vnc-server/sk/stimba/urcap/vnc/impl/daemon"
+mkdir -p "$(dirname "${URCAP_DAEMON_LINK}")" 2>/dev/null || true
+# `ln -sfn` does NOT replace a real directory with a symlink — it would create
+# a nested link inside it. If a previous URCap install left a real directory
+# at this path (Polyscope used to extract here on older firmware), wipe it
+# first. Only ever wipes our own URCap's daemon directory, never customer data.
+if [ ! -L "${URCAP_DAEMON_LINK}" ] && [ -e "${URCAP_DAEMON_LINK}" ]; then
+    rm -rf "${URCAP_DAEMON_LINK}" 2>/dev/null || true
+fi
+ln -sfn "${SCRIPT_SELF_DIR}" "${URCAP_DAEMON_LINK}" 2>/dev/null || true
+
 # --- 0b. Source config — v2.1.0 first, legacy fallback ----------------------
 CONFIG_FILE_NEW="/var/lib/urcap-vnc/config"
 CONFIG_FILE_LEGACY="/root/.urcap-vnc.conf"

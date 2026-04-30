@@ -40,13 +40,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
+import java.net.InetAddress;
 import java.net.Socket;
 import java.net.URI;
 import java.net.URLEncoder;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.security.Security;
 import java.util.Base64;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
@@ -58,9 +61,44 @@ public final class VncTunnelClient {
 
     private static final Logger LOG = Logger.getLogger(VncTunnelClient.class.getName());
 
+    /**
+     * v3.12.14 — Override Java's default DNS caching at class load.
+     *
+     * Polyscope's JRE on UR e-Series ships with the Sun JVM defaults
+     * `networkaddress.cache.ttl=-1` (positive results cached forever) and
+     * `networkaddress.cache.negative.ttl=10`. The "forever positive" is the
+     * killer: if the very first lookup of stimba-vnc-relay.fly.dev hits while
+     * Polyscope's resolver is in a bad state (WiFi-firewalled DNS, dnsmasq
+     * cache poisoning, /etc/resolv.conf race during first boot), the JVM
+     * caches the resulting UnknownHostException and never re-queries — the
+     * tunnel reports "UnknownHostException" forever even after the OS
+     * resolver recovers.
+     *
+     * 30 s positive TTL + 0 s negative TTL means we re-query reasonably often
+     * but never cache failures. Set via java.security.Security at class
+     * load so it takes effect before InetAddress is touched the first time.
+     * Re-set on every JVM restart; harmless if Polyscope's policy already
+     * has these.
+     */
+    static {
+        try {
+            Security.setProperty("networkaddress.cache.ttl",          "30");
+            Security.setProperty("networkaddress.cache.negative.ttl",  "0");
+        } catch (Throwable t) {
+            // Some Polyscope JREs run a SecurityManager that forbids this.
+            // Falling back to default policy is fine — UnknownHostException
+            // retry below still helps on the next iteration.
+        }
+    }
+
     /** RFC 6455 §1.3 handshake GUID. */
     private static final String WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
     private static final long MIN_BACKOFF_MS = 1_000L;
+    /** v3.12.14 — DNS-failure backoff caps shorter than the generic MAX_BACKOFF_MS
+     *  because UnknownHostException is usually a stale-cache or transient
+     *  resolver issue that clears within seconds, not the multi-minute outage
+     *  the generic exponential backoff was tuned for. */
+    private static final long DNS_FAIL_BACKOFF_CAP_MS = 15_000L;
     private static final long MAX_BACKOFF_MS = 60_000L;
     private static final int  PUMP_BUFFER    = 16_384;
     private static final int  WS_OP_CONT     = 0x0;
@@ -178,19 +216,37 @@ public final class VncTunnelClient {
                 break;
             } catch (Throwable t) {
                 connected = false;
-                long waitS = backoff / 1000L;
                 String errLine = t.getClass().getSimpleName() + ": " + String.valueOf(t.getMessage());
                 lastError   = errLine;
                 lastErrorAt = System.currentTimeMillis();
+
+                // v3.12.14 — DNS errors are usually a stale cache or a transient
+                // resolver hiccup. Using the same exponential backoff (capped at
+                // 60s) we use for socket-level errors meant a stale negative DNS
+                // cache caused a 60s+ wait between retries — turning a few-second
+                // problem into a many-minute one. UnknownHostException-class
+                // failures get a tighter cap (15s) so we retry sooner. We also
+                // reset the backoff growth so subsequent non-DNS errors start
+                // fresh from MIN_BACKOFF_MS.
+                boolean isDnsFailure = (t instanceof UnknownHostException);
+                long effectiveCap = isDnsFailure ? DNS_FAIL_BACKOFF_CAP_MS : MAX_BACKOFF_MS;
+                long waitMs = Math.min(effectiveCap, backoff);
+                long waitS  = waitMs / 1000L;
+
                 LOG.log(Level.WARNING, "relay session ended: " + errLine);
                 setStatus("Relay reconnect za " + waitS + "s — " + errLine);
                 try {
-                    sleepInterruptible(backoff);
+                    sleepInterruptible(waitMs);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     break;
                 }
-                backoff = Math.min(MAX_BACKOFF_MS, backoff * 2L);
+                if (isDnsFailure) {
+                    // Don't compound DNS retries into the slow socket-error backoff
+                    backoff = MIN_BACKOFF_MS;
+                } else {
+                    backoff = Math.min(MAX_BACKOFF_MS, backoff * 2L);
+                }
             } finally {
                 closeAllSilent();
                 connected = false;
