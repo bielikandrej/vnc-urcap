@@ -25,6 +25,12 @@ on:
 jobs:
   regress:
     runs-on: ubuntu-latest
+    # v3.12.13 — softprops/action-gh-release needs contents:write to POST a
+    # new release + upload the .urcap asset on tag pushes. The default
+    # GITHUB_TOKEN at the repo's "Workflow permissions: read repository
+    # contents" setting returns 403 ("Resource not accessible by integration").
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
