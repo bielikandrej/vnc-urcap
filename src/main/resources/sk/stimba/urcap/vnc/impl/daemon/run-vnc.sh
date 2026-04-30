@@ -19,8 +19,9 @@
 #    on tcp/VNC_PORT (kernel-level RBAC, see ADR-002).
 # 7. v3.0.0 (C1): if TLS_ENABLED, invokes tls-bootstrap.sh and passes
 #    `-ssl SAVE` to x11vnc so the wire is AES-encrypted end-to-end.
-# 8. v3.0.0 (C4): passes `-connect_or_exit N` when MAX_CLIENTS=1 (the
-#    default), or `-connect N` for 2-5; enforces UI max clients count.
+# 8. v3.12.15 (C4): passes `-nevershared` when MAX_CLIENTS=1 (single-session
+#    admin), or `-shared` for 2-5. (Replaces broken v3.0.0 misuse of x11vnc
+#    `-connect_or_exit N` which is a reverse-VNC flag, not a client-cap.)
 # 9. v3.0.0 (C2): if IDLE_TIMEOUT_MIN>0, spawns idle-watcher.sh in the
 #    background to kick idle clients after N minutes of no pointer motion.
 #10. exec x11vnc attached to Polyscope DISPLAY :0 on 0.0.0.0:VNC_PORT.
@@ -579,9 +580,10 @@ fi
 # the hook's environment; vnc-audit-hook.sh writes one JSON-line per event
 # into /var/log/urcap-vnc-audit.log.  See ADR-007.
 #
-# v3.0.0 adds: -ssl, -connect_or_exit/-connect (max clients), plus an
-# idle-watcher that invokes `x11vnc -R disconnect all` when the pointer
-# has been stationary for IDLE_TIMEOUT_MIN minutes.
+# v3.0.0 adds: -ssl, plus an idle-watcher that invokes `x11vnc -R disconnect
+# all` when the pointer has been stationary for IDLE_TIMEOUT_MIN minutes.
+# v3.12.15 fixes broken `-connect_or_exit "1"` which mis-used x11vnc's
+# reverse-VNC flag and caused x11vnc to exit at startup → respawn loop.
 #
 AUDIT_HOOK="${SCRIPT_DIR}/vnc-audit-hook.sh"
 IDLE_WATCHER="${SCRIPT_DIR}/idle-watcher.sh"
@@ -608,15 +610,21 @@ else
 fi
 
 # --- Max clients (C4) -------------------------------------------------------
-# -connect_or_exit N  -> keep at most N clients, refuse the (N+1)th
-# -connect N          -> same but without -exit semantics
-# MAX_CLIENTS==1 is the secure default (single-session admin access).
-# x11vnc's `-nevershared` alone would refuse more than one but offers no
-# way to bump the cap, so we always pass -connect.
+# v3.12.15 — fix: original code used `-connect_or_exit "1"` thinking it caps
+# clients at 1. That flag is for REVERSE VNC (string is a hostname). With "1"
+# x11vnc would try to reverse-connect to host literally named "1", fail, and
+# (per `_or_exit` semantics) shut down immediately — hence the daemon respawn
+# loop and `127.0.0.1:5900` ConnectException seen by the relay tunnel client.
+# Same bug in the else branch with `-connect "${MAX_CLIENTS}"`.
+#
+# x11vnc has no native "max N concurrent clients" cap. `-nevershared` already
+# enforces single-client mode (incoming viewer disconnects the existing one).
+# `-shared` allows multiple concurrent viewers. That is the closest match to
+# the original intent without the bogus reverse-connect side-effect.
 if [ "${MAX_CLIENTS}" -eq 1 ]; then
-    ARGS+=( "-nevershared" "-connect_or_exit" "1" )
+    ARGS+=( "-nevershared" )
 else
-    ARGS+=( "-shared" "-connect" "${MAX_CLIENTS}" )
+    ARGS+=( "-shared" )
 fi
 log "max-clients policy: ${MAX_CLIENTS} (mode=$([ "${MAX_CLIENTS}" -eq 1 ] && echo single || echo shared))"
 
