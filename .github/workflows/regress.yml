@@ -7,6 +7,8 @@ name: URCap API regression
 
 on:
   push:
+    branches: ["**"]
+    tags: ["v*"]
     paths:
       - "src/**"
       - "build-with-docker/**"
@@ -41,6 +43,22 @@ jobs:
           name: urcap
           path: target/*.urcap
           retention-days: 30
+
+      # v3.12.12 — when the build succeeds AND a vN.M.P tag triggered the
+      # workflow, publish the .urcap as an asset on the matching GitHub
+      # release. Avoids the "tag exists but downloads/v<x>/<asset>.urcap
+      # 404s" gap we hit on v3.12.10/11. Pre-release until the operator
+      # manually flips it.
+      - name: Publish .urcap as release asset (tag pushes only)
+        if: success() && startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/*.urcap
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          prerelease: true
+          fail_on_unmatched_files: true
+          generate_release_notes: true
 
       - name: Explain failure (job summary)
         if: failure()
