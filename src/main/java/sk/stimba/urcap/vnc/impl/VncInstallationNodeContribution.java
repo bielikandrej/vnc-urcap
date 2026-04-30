@@ -1267,6 +1267,89 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
                     }
                     return new DashboardCommandPoller.Ack(true, out.toString(), null);
                 }
+                case "install_urcap": {
+                    // v3.12.16 — remote URCap install. Portal sends:
+                    //   { url: "https://github.com/.../<file>.urcap",
+                    //     sha256: "<64-hex>", name: "<file>.urcap" }
+                    // URCap downloads, verifies, writes to /root/.urcaps/, then
+                    // schedules a controller restart so Polyscope reloads URCaps.
+                    // See wiki/06-remote-fileops-api.md for the full contract.
+                    String url      = extractArgString(argsJson, "url");
+                    String sha256   = extractArgString(argsJson, "sha256");
+                    String name     = extractArgString(argsJson, "name");
+                    RemoteUrcapInstaller.InstallResult ir =
+                            RemoteUrcapInstaller.install(url, sha256, name);
+                    if (!ir.ok) {
+                        return new DashboardCommandPoller.Ack(false, null, ir.message);
+                    }
+                    // Schedule the restart AFTER we return Ack — the poller has
+                    // ~5 s to PATCH the ack back before urcontrol.service goes
+                    // down and takes URCap with it.
+                    RemoteUrcapInstaller.scheduleControllerRestart();
+                    return new DashboardCommandPoller.Ack(true, ir.message, null);
+                }
+                case "file_list": {
+                    // v3.12.16 — list directory under the file-ops allowlist.
+                    String path = extractArgString(argsJson, "path");
+                    RemoteFileOps.OpResult r = RemoteFileOps.list(path);
+                    return r.ok
+                        ? new DashboardCommandPoller.Ack(true, r.resultJson, null)
+                        : new DashboardCommandPoller.Ack(false, null, r.errorMessage);
+                }
+                case "file_stat": {
+                    String path = extractArgString(argsJson, "path");
+                    RemoteFileOps.OpResult r = RemoteFileOps.stat(path);
+                    return r.ok
+                        ? new DashboardCommandPoller.Ack(true, r.resultJson, null)
+                        : new DashboardCommandPoller.Ack(false, null, r.errorMessage);
+                }
+                case "file_read": {
+                    // args: { path, offset (string-int, default 0), length (string-int) }
+                    String path     = extractArgString(argsJson, "path");
+                    String offStr   = extractArgString(argsJson, "offset");
+                    String lenStr   = extractArgString(argsJson, "length");
+                    long offset = 0;
+                    int  length = RemoteFileOps.MAX_READ_BYTES;
+                    try { if (offStr != null) offset = Long.parseLong(offStr.trim()); } catch (Throwable ignored) {}
+                    try { if (lenStr != null) length = Integer.parseInt(lenStr.trim()); } catch (Throwable ignored) {}
+                    RemoteFileOps.OpResult r = RemoteFileOps.read(path, offset, length);
+                    return r.ok
+                        ? new DashboardCommandPoller.Ack(true, r.resultJson, null)
+                        : new DashboardCommandPoller.Ack(false, null, r.errorMessage);
+                }
+                case "file_write": {
+                    // args: { path, offset (string-int, default 0), b64,
+                    //         total_size? (string-int), truncate? (bool) }
+                    String path      = extractArgString(argsJson, "path");
+                    String offStr    = extractArgString(argsJson, "offset");
+                    String b64       = extractArgString(argsJson, "b64");
+                    String totalStr  = extractArgString(argsJson, "total_size");
+                    String truncStr  = extractArgString(argsJson, "truncate");
+                    long offset = 0;
+                    try { if (offStr != null) offset = Long.parseLong(offStr.trim()); } catch (Throwable ignored) {}
+                    Long expectedTotal = null;
+                    try { if (totalStr != null) expectedTotal = Long.parseLong(totalStr.trim()); } catch (Throwable ignored) {}
+                    boolean truncate = "true".equalsIgnoreCase(truncStr == null ? "false" : truncStr.trim());
+                    RemoteFileOps.OpResult r =
+                            RemoteFileOps.write(path, offset, b64, expectedTotal, truncate);
+                    return r.ok
+                        ? new DashboardCommandPoller.Ack(true, r.resultJson, null)
+                        : new DashboardCommandPoller.Ack(false, null, r.errorMessage);
+                }
+                case "file_delete": {
+                    String path = extractArgString(argsJson, "path");
+                    RemoteFileOps.OpResult r = RemoteFileOps.delete(path);
+                    return r.ok
+                        ? new DashboardCommandPoller.Ack(true, r.resultJson, null)
+                        : new DashboardCommandPoller.Ack(false, null, r.errorMessage);
+                }
+                case "file_mkdir": {
+                    String path = extractArgString(argsJson, "path");
+                    RemoteFileOps.OpResult r = RemoteFileOps.mkdir(path);
+                    return r.ok
+                        ? new DashboardCommandPoller.Ack(true, r.resultJson, null)
+                        : new DashboardCommandPoller.Ack(false, null, r.errorMessage);
+                }
                 default:
                     return new DashboardCommandPoller.Ack(false, null, "unknown tool: " + toolName);
             }

@@ -52,6 +52,17 @@ sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public <init>() -> void
 sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public <init>(String, int) -> void
 sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public sendOneLiner(String) -> void
 sk.stimba.urcap.vnc.impl.PrimaryInterfaceClient :: public sendScript(String) -> void
+sk.stimba.urcap.vnc.impl.RemoteFileOps :: package static <clinit>() -> void
+sk.stimba.urcap.vnc.impl.RemoteFileOps :: package static resolveSafe(String, RemoteFileOps$Mode) -> Path
+sk.stimba.urcap.vnc.impl.RemoteFileOps :: public static delete(String) -> RemoteFileOps$OpResult
+sk.stimba.urcap.vnc.impl.RemoteFileOps :: public static list(String) -> RemoteFileOps$OpResult
+sk.stimba.urcap.vnc.impl.RemoteFileOps :: public static mkdir(String) -> RemoteFileOps$OpResult
+sk.stimba.urcap.vnc.impl.RemoteFileOps :: public static read(String, long, int) -> RemoteFileOps$OpResult
+sk.stimba.urcap.vnc.impl.RemoteFileOps :: public static stat(String) -> RemoteFileOps$OpResult
+sk.stimba.urcap.vnc.impl.RemoteFileOps :: public static write(String, long, String, Long, boolean) -> RemoteFileOps$OpResult
+sk.stimba.urcap.vnc.impl.RemoteUrcapInstaller :: package static <clinit>() -> void
+sk.stimba.urcap.vnc.impl.RemoteUrcapInstaller :: public static install(String, String, String) -> RemoteUrcapInstaller$InstallResult
+sk.stimba.urcap.vnc.impl.RemoteUrcapInstaller :: public static scheduleControllerRestart() -> void
 sk.stimba.urcap.vnc.impl.RobotMetadataProbe :: package static <clinit>() -> void
 sk.stimba.urcap.vnc.impl.RobotMetadataProbe :: public <init>(InstallationAPIProvider) -> void
 sk.stimba.urcap.vnc.impl.RobotMetadataProbe :: public probe() -> RobotMetadataProbe$Snapshot
