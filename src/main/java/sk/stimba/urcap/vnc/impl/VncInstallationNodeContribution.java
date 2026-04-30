@@ -255,10 +255,17 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
             @Override
             public void run() {
                 final Map<String, String> probed = pollHealth();
+                // v3.12.11 — capture relay state on the same tick so UI sees
+                // both shell probes and in-memory tunnel status in one refresh.
+                final boolean tunnelRunning = isRelayTunnelRunning();
+                final boolean tunnelConnected = isRelayConnected();
+                final String  tunnelStatus    = getRelayStatus();
+                final String  tunnelLastError = getRelayLastError();
                 EventQueue.invokeLater(new Runnable() {
                     @Override
                     public void run() {
                         view.updateHealth(probed);
+                        view.updateRelay(tunnelRunning, tunnelConnected, tunnelStatus, tunnelLastError);
                     }
                 });
             }
@@ -399,6 +406,25 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
 
     public boolean isRelayConnected() {
         return vncTunnel != null && vncTunnel.isConnected();
+    }
+
+    // v3.12.11 — surface tunnel state to the view's "Stav démona" panel and
+    // (via PortalHeartbeatRunner) to the portal device card.  Each accessor
+    // returns "—" / null safely if the tunnel hasn't been wired up yet.
+    public boolean isRelayTunnelRunning() {
+        return vncTunnel != null && vncTunnel.isRunning();
+    }
+    public String getRelayStatus() {
+        return vncTunnel == null ? "—" : vncTunnel.getCurrentStatus();
+    }
+    public String getRelayLastError() {
+        return vncTunnel == null ? null : vncTunnel.getLastError();
+    }
+    public long getRelayLastErrorAt() {
+        return vncTunnel == null ? 0L : vncTunnel.getLastErrorAt();
+    }
+    public long getRelayLastConnectedAt() {
+        return vncTunnel == null ? 0L : vncTunnel.getLastConnectedAt();
     }
 
     /**

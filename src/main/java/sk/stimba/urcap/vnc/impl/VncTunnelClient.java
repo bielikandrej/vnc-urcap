@@ -90,6 +90,17 @@ public final class VncTunnelClient {
     private volatile Socket     wsSocket;    // TCP/TLS to relay
     private volatile Socket     localSocket; // TCP to 127.0.0.1:5900
 
+    // v3.12.11 — surface relay state to the UI / heartbeat. The connector loop
+    // currently logs status changes only via java.util.logging which is invisible
+    // to the operator on Polyscope. These four fields let VncInstallationNodeView
+    // render a "Relay tunnel" row in Stav démona, and let PortalHeartbeatRunner
+    // include the last failure reason in the heartbeat so portal.stimba.sk can
+    // show it in the device card.
+    private volatile String currentStatus    = "—";
+    private volatile String lastError        = null;   // class + message of most recent throwable
+    private volatile long   lastErrorAt      = 0L;     // epoch ms; 0 = never
+    private volatile long   lastConnectedAt  = 0L;     // epoch ms; 0 = never
+
     public VncTunnelClient(Supplier tokenSupplier,
                            Supplier deviceIdSupplier,
                            Supplier relayUrlSupplier,
@@ -129,6 +140,12 @@ public final class VncTunnelClient {
     public boolean isConnected()  { return connected; }
     public boolean isRunning()    { return running.get(); }
 
+    /** v3.12.11 — UI/heartbeat surface for the otherwise-invisible relay state. */
+    public String getCurrentStatus()  { return currentStatus; }
+    public String getLastError()      { return lastError; }
+    public long   getLastErrorAt()    { return lastErrorAt; }
+    public long   getLastConnectedAt(){ return lastConnectedAt; }
+
     // =====================================================================
     // Connector loop
     // =====================================================================
@@ -162,9 +179,11 @@ public final class VncTunnelClient {
             } catch (Throwable t) {
                 connected = false;
                 long waitS = backoff / 1000L;
-                LOG.log(Level.WARNING, "relay session ended: " + t.getClass().getSimpleName()
-                        + " " + String.valueOf(t.getMessage()));
-                setStatus("Relay reconnect za " + waitS + "s");
+                String errLine = t.getClass().getSimpleName() + ": " + String.valueOf(t.getMessage());
+                lastError   = errLine;
+                lastErrorAt = System.currentTimeMillis();
+                LOG.log(Level.WARNING, "relay session ended: " + errLine);
+                setStatus("Relay reconnect za " + waitS + "s — " + errLine);
                 try {
                     sleepInterruptible(backoff);
                 } catch (InterruptedException ie) {
@@ -267,6 +286,8 @@ public final class VncTunnelClient {
         OutputStream localOut = new BufferedOutputStream(local.getOutputStream());
 
         connected = true;
+        lastError = null;                              // v3.12.11
+        lastConnectedAt = System.currentTimeMillis();  // v3.12.11
         setStatus("Relay pripojený");
 
         // ---- Pump WS -> local ------------------------------------------
@@ -464,6 +485,7 @@ public final class VncTunnelClient {
     }
 
     private void setStatus(String s) {
+        currentStatus = (s == null) ? "—" : s;        // v3.12.11
         if (statusSink == null) return;
         try { statusSink.update(s); } catch (Throwable ignored) { /* swallow */ }
     }

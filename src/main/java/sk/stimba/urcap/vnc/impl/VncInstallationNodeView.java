@@ -115,6 +115,9 @@ public class VncInstallationNodeView
 
     // --- Health dots -------------------------------------------------------
     private JLabel dotDaemon, dotIptables, dotPort, dotDisplay, dotIxrouter;
+    // v3.12.11 — Relay tunnel state (in-memory; no shell probe needed)
+    private JLabel dotRelay;
+    private JLabel relayLabel;
 
     // --- Sprint 2 widgets --------------------------------------------------
     private JTextArea          logTailArea;       // B1
@@ -489,6 +492,40 @@ public class VncInstallationNodeView
         }
         pwdStrengthLabel.setText(txt);
         pwdStrengthLabel.setForeground(col);
+    }
+
+    /**
+     * v3.12.11 — Relay tunnel state row in "Stav démona". Driven by the same
+     * 5s health-tick as updateHealth() but reads in-memory state from
+     * VncTunnelClient via the contribution (no shell probe).
+     *
+     * dot colors: green=connected, amber=connecting/reconnecting, red=last
+     * attempt failed, gray=tunnel not running (e.g. relay disabled in config).
+     */
+    public void updateRelay(boolean tunnelRunning, boolean connected, String currentStatus, String lastError) {
+        if (dotRelay == null || relayLabel == null) return;
+        String dotState;
+        String text;
+        if (!tunnelRunning) {
+            dotState = "unknown";
+            text = "Relay tunnel: vypnutý";
+        } else if (connected) {
+            dotState = "ok";
+            text = "Relay tunnel: pripojený";
+        } else if (lastError != null && !lastError.isEmpty()) {
+            dotState = "fail";
+            text = "Relay tunnel: " + (currentStatus != null ? currentStatus : lastError);
+        } else {
+            dotState = "warning";
+            text = "Relay tunnel: " + (currentStatus != null ? currentStatus : "pripája…");
+        }
+        setDot(dotRelay, dotState);
+        relayLabel.setText(htmlWrap(text));
+        relayLabel.setForeground(
+            "fail".equals(dotState)    ? COLOR_FAIL :
+            "ok".equals(dotState)      ? COLOR_OK   :
+            "warning".equals(dotState) ? COLOR_WARN : COLOR_UNKNOWN
+        );
     }
 
     public void updateHealth(Map<String, String> probes) {
@@ -874,6 +911,7 @@ public class VncInstallationNodeView
         dotPort     = makeDot("unknown");
         dotDisplay  = makeDot("unknown");
         dotIxrouter = makeDot("unknown");
+        dotRelay    = makeDot("unknown");
 
         grid.add(healthRow(dotDaemon,   "Daemon x11vnc beží"));
         grid.add(healthRow(dotIptables, "iptables whitelist aktívna (môže byť 'unknown' z UI — check vyžaduje root)"));
@@ -881,7 +919,26 @@ public class VncInstallationNodeView
         grid.add(healthRow(dotDisplay,  "DISPLAY :0 dostupný (xdpyinfo)"));
         grid.add(healthRow(dotIxrouter, "IXrouter odpovedá na ping"));
 
+        // v3.12.11 — Stimba VNC Relay tunnel (URCap → stimba-vnc-relay.fly.dev WSS).
+        // Stored as a field so updateRelay() can rewrite the label text with the
+        // current status / last error message — gives the operator the missing
+        // visibility we'd otherwise only get via Polyscope JVM logs.
+        relayLabel = new JLabel("Relay tunnel: —");
+        relayLabel.setFont(relayLabel.getFont().deriveFont(Font.PLAIN, 12f));
+        grid.add(healthRowWithLabel(dotRelay, relayLabel));
+
         return grid;
+    }
+
+    private JPanel healthRowWithLabel(JLabel dot, JLabel label) {
+        JPanel row = new JPanel();
+        row.setLayout(new BoxLayout(row, BoxLayout.X_AXIS));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.add(dot);
+        row.add(Box.createRigidArea(new Dimension(8, 0)));
+        row.add(label);
+        row.add(Box.createHorizontalGlue());
+        return row;
     }
 
     private JPanel healthRow(JLabel dot, String text) {
