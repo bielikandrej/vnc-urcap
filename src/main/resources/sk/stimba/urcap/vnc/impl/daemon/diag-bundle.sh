@@ -1,15 +1,24 @@
 #!/bin/bash
 #
-# STIMBA VNC Server — diagnostic bundle (URCap 2.2.0)
+# STIMBA VNC Server — diagnostic bundle (URCap 2.2.0+, USB autodetect v3.12.17)
 #
 # Packs everything you'd ask Andrej to grab via SSH into one .tar.gz so the
 # operator can email/Gong-share it and Andrej can reproduce the fleet state
 # locally.
 #
-# Output: /root/urcap-vnc-diag-YYYYMMDD-HHMMSS.tar.gz
+# Output (in priority order, v3.12.17):
+#   1. USB stick auto-mounted under /programs/<label>/ — preferred. Operator
+#      plugs the stick into the teach pendant before clicking the button and
+#      the bundle lands directly on it; no SSH required.
+#   2. /media/<label>/, /mnt/<label>/, /run/media/<user>/<label>/ — older
+#      firmwares + URSim setups.
+#   3. Fallback /root/urcap-vnc-diag-YYYYMMDD-HHMMSS.tar.gz when no removable
+#      filesystem is writable. Same SSH-fetch flow as before v3.12.17.
 #
-# Called from the Java UI via "Exportovať diagnostiku" button.  Exits 0 on
-# success.  stdout: final .tar.gz path.  stderr: progress log.
+# Called from the Java UI via "Exportovať diagnostiku" button. Exits 0 on
+# success. stdout: final .tar.gz path (UI shows it verbatim — operator sees
+# `/programs/<USB>/...` for USB output vs `/root/...` for SSH-fetch case).
+# stderr: progress log including which path was picked and why.
 #
 # SENSITIVE INFO REDACTION:
 # Passwords (run-vnc.sh may log VNC_PASSWORD echoes during debugging) are
@@ -19,12 +28,51 @@ set -eu
 
 TS="$(date +%Y%m%d-%H%M%S)"
 STAGE="$(mktemp -d /tmp/urcap-vnc-diag.XXXXXX)"
-OUT="/root/urcap-vnc-diag-${TS}.tar.gz"
 
 log() { printf '[diag-bundle] %s\n' "$*" >&2; }
 trap 'rm -rf "${STAGE}"' EXIT
 
 log "stage dir: ${STAGE}"
+
+# ---------------------------------------------------------------------------
+# USB output path detection (v3.12.17)
+# ---------------------------------------------------------------------------
+# Polyscope auto-mounts USB sticks at /programs/<volume-label>/ on e-Series so
+# they show up in the file browser. Generic Linux paths (/media, /mnt,
+# /run/media) cover older firmwares + URSim setups. We pick the FIRST writable
+# removable filesystem in this priority order, falling back to /root/ if none.
+#
+# Filesystem types matched: vfat / exfat / ntfs / fuseblk / msdos — common on
+# consumer USB sticks. We deliberately don't match ext4 etc., which would
+# pick up internal mounts the operator can't physically remove.
+detect_usb_mount() {
+    local candidate
+    while IFS= read -r candidate; do
+        if [ -d "${candidate}" ] && [ -w "${candidate}" ]; then
+            # Probe writability — `mountpoint -w` isn't portable. We touch a
+            # marker file. If it works, the mount is healthy + writable.
+            if : > "${candidate}/.urcap-diag.probe" 2>/dev/null; then
+                rm -f "${candidate}/.urcap-diag.probe"
+                printf '%s\n' "${candidate}"
+                return 0
+            fi
+        fi
+    done < <(awk '
+        $2 ~ /^\/programs\//   && $3 ~ /^(vfat|exfat|ntfs|fuseblk|msdos)$/ {print $2}
+        $2 ~ /^\/media\//      && $3 ~ /^(vfat|exfat|ntfs|fuseblk|msdos)$/ {print $2}
+        $2 ~ /^\/mnt\//        && $3 ~ /^(vfat|exfat|ntfs|fuseblk|msdos)$/ {print $2}
+        $2 ~ /^\/run\/media\// && $3 ~ /^(vfat|exfat|ntfs|fuseblk|msdos)$/ {print $2}
+    ' /proc/mounts 2>/dev/null)
+    return 1
+}
+
+if USB_MNT="$(detect_usb_mount)"; then
+    OUT="${USB_MNT}/urcap-vnc-diag-${TS}.tar.gz"
+    log "USB stick detected at ${USB_MNT} — bundle will land there (no SSH needed)"
+else
+    OUT="/root/urcap-vnc-diag-${TS}.tar.gz"
+    log "no writable USB mount under /programs|/media|/mnt|/run/media — falling back to /root (fetch via scp)"
+fi
 
 # --- 1. logs (redacted) -----------------------------------------------------
 mkdir -p "${STAGE}/logs"

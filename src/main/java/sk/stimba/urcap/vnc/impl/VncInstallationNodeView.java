@@ -1124,8 +1124,11 @@ public class VncInstallationNodeView
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JButton diagBtn = new JButton("Exportovať diagnostiku");
-        diagBtn.setToolTipText("Vytvorí /root/urcap-vnc-diag-*.tar.gz s logmi (redacted), "
-                + "iptables-save, ss, ps, health-probe, MANIFEST a /var/lib/urcap-vnc.");
+        diagBtn.setToolTipText("<html>Zbalí logy (redacted), iptables-save, ss, ps, "
+                + "health-probe, MANIFEST a /var/lib/urcap-vnc do .tar.gz.<br/>"
+                + "<b>v3.12.17:</b> ak je USB kľúč zasunutý do pendantu, bundle sa "
+                + "uloží naňho (vidíš v Polyscope file browseri). Bez USB ide do "
+                + "/root/ — fetch cez scp.</html>");
         diagBtn.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
