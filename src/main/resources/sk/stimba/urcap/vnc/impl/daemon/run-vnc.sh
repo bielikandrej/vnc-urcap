@@ -142,7 +142,7 @@ URCAP_VNC_REQUIRE_STRONG_PWD="${URCAP_VNC_REQUIRE_STRONG_PWD:-1}"
 # v3.0.0 Sprint 3 knobs
 TLS_ENABLED="${TLS_ENABLED:-1}"
 IDLE_TIMEOUT_MIN="${IDLE_TIMEOUT_MIN:-30}"
-MAX_CLIENTS="${MAX_CLIENTS:-1}"
+MAX_CLIENTS="${MAX_CLIENTS:-5}"  # v3.12.20 (was 1) — multi-viewer default
 DISPLAY="${DISPLAY:-:0}"
 export DISPLAY
 
@@ -170,6 +170,17 @@ fi
 DAEMON_LOG="/var/log/urcap-vnc.log"
 touch "${DAEMON_LOG}" 2>/dev/null || true
 chmod 644 "${DAEMON_LOG}" 2>/dev/null || true
+
+# v3.12.20 — defense-in-depth log size cap. The robot's SD card is 1.7 GB;
+# under a respawn loop our log filled to 134 MB in ~10 hours (2026-04-30
+# incident). post-install.sh installs logrotate but if it's missing or a
+# day's rotation hasn't fired yet, trim here at startup so we never see
+# the 100% disk again. 10 MB threshold; keep last 5 MB.
+if [ -s "${DAEMON_LOG}" ] && [ "$(stat -c%s "${DAEMON_LOG}" 2>/dev/null || echo 0)" -gt $((10*1024*1024)) ]; then
+    tail -c 5242880 "${DAEMON_LOG}" > "${DAEMON_LOG}.tmp" 2>/dev/null \
+        && mv "${DAEMON_LOG}.tmp" "${DAEMON_LOG}" 2>/dev/null \
+        && echo "$(date '+%Y-%m-%d %H:%M:%S') [urcap-vnc] startup-trim: capped ${DAEMON_LOG} at 5MB" >> "${DAEMON_LOG}"
+fi
 log() {
     local msg="$*"
     logger -t "${LOG_TAG}" "${msg}" 2>/dev/null || true

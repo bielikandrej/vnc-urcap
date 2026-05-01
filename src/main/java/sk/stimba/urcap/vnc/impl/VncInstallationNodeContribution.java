@@ -99,7 +99,7 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
     private static final boolean DEFAULT_STRONG_PWD       = true;
     private static final boolean DEFAULT_TLS_ENABLED      = true;              // v3.0.0 — secure-by-default
     private static final int     DEFAULT_IDLE_TIMEOUT_MIN = 30;                // v3.0.0 — 30 min walk-away safety
-    private static final int     DEFAULT_MAX_CLIENTS      = 1;                 // v3.0.0 — single-session admin
+    private static final int     DEFAULT_MAX_CLIENTS      = 5;                 // v3.12.20 (was 1 in v3.0.0) — multi-viewer default; many ops want >1 simultaneous tabs
     // v3.12.0 — relay opt-in by default (operator can disable per robot)
     private static final boolean DEFAULT_RELAY_ENABLED    = true;
     private static final String  DEFAULT_RELAY_URL        = "wss://stimba-vnc-relay.fly.dev";

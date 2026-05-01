@@ -94,21 +94,65 @@ if [ -x "${SCRIPT_DIR}/tls-bootstrap.sh" ]; then
 fi
 
 # --- logrotate --------------------------------------------------------------
+# v3.12.20 — also cover x11vnc.log + websockify.log (added when those
+# get used during debug), and add a SECOND config that caps the system
+# logs (user.log, syslog, messages) which rsyslog's default rotates
+# weekly with NO size limit. During the 2026-04-30 respawn-loop incident
+# /var/log/user.log grew to 141 MB before next rsyslog rotation — that
+# alone filled the 1.7 GB SD card. Installing both files at install
+# time means fresh deploys are protected even on the very first day.
 LOGROTATE_CONF="/etc/logrotate.d/urcap-vnc"
 if [ -w /etc/logrotate.d ]; then
     cat > "${LOGROTATE_CONF}" <<'EOF'
-/var/log/urcap-vnc.log /var/log/urcap-vnc-audit.log /var/log/urcap-vnc-temp-allowlist {
+/var/log/urcap-vnc.log /var/log/urcap-vnc-audit.log /var/log/urcap-vnc-temp-allowlist /var/log/x11vnc.log /var/log/websockify.log {
     daily
-    rotate 90
+    rotate 7
     compress
     delaycompress
     missingok
     notifempty
     copytruncate
-    maxsize 10M
+    create 0644 root root
+    maxsize 5M
 }
 EOF
     echo "[post-install] installed ${LOGROTATE_CONF}"
+fi
+
+LOGROTATE_OVR="/etc/logrotate.d/urcap-vnc-overrides"
+if [ -w /etc/logrotate.d ]; then
+    cat > "${LOGROTATE_OVR}" <<'EOF'
+# STIMBA VNC URCap v3.12.20 — bound rsyslog system logs that have no default
+# size cap. The robot's 1.7 GB SD card filled to 100% in 2026-04-30 because
+# /var/log/user.log was 141 MB after a 10-hour respawn loop (rsyslog routes
+# 'logger -t urcap-vnc' messages to user.log; default rotation is weekly +
+# uncapped). 20 MB cap with daily rotation prevents recurrence.
+/var/log/user.log
+/var/log/syslog
+/var/log/messages
+{
+    daily
+    maxsize 20M
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    sharedscripts
+    postrotate
+        /usr/lib/rsyslog/rsyslog-rotate >/dev/null 2>&1 || \
+            kill -HUP $(cat /var/run/rsyslogd.pid 2>/dev/null) 2>/dev/null || true
+    endscript
+}
+EOF
+    echo "[post-install] installed ${LOGROTATE_OVR}"
+
+    # Force one rotation now if any of our logs is already > 5 MB.
+    # logrotate will pick up the new config on next cron tick anyway,
+    # but kicking it now releases pressure on a near-full SD card faster.
+    /usr/sbin/logrotate -f /etc/logrotate.d/urcap-vnc 2>/dev/null || true
+    /usr/sbin/logrotate -f /etc/logrotate.d/urcap-vnc-overrides 2>/dev/null || true
 fi
 
 # --- cron entry for temp-allowlist sweeper ----------------------------------

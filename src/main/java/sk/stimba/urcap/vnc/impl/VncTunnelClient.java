@@ -125,8 +125,24 @@ public final class VncTunnelClient {
     private final AtomicBoolean running   = new AtomicBoolean(false);
     private volatile boolean    connected = false;
     private volatile Thread     connectorThread;
+    private volatile Thread     watchdogThread;       // v3.12.20
     private volatile Socket     wsSocket;    // TCP/TLS to relay
     private volatile Socket     localSocket; // TCP to 127.0.0.1:5900
+
+    // v3.12.20 — connector liveness for the watchdog. Set at the top of
+    // every connectorLoop() iteration. If this stops advancing while
+    // running.get() is still true, either:
+    //   (a) the worker thread terminated unexpectedly (e.g. uncaught
+    //       Throwable that escaped the try/catch — happened 2026-05-01
+    //       21:58:46 UTC when a network-stack hiccup killed multiple
+    //       Java sockets simultaneously and the connector silently
+    //       stopped retrying),
+    //   (b) it's stuck inside runSession on a dead socket waiting for
+    //       a read/write that will never complete.
+    // Watchdog detects both and respawns / interrupts.
+    private volatile long       lastConnectorIterAt = 0L;
+    private static final long   WATCHDOG_INTERVAL_MS  = 30_000L;
+    private static final long   STALE_CONNECTOR_MS    = 180_000L; // 3 min
 
     // v3.12.11 — surface relay state to the UI / heartbeat. The connector loop
     // currently logs status changes only via java.util.logging which is invisible
@@ -156,13 +172,9 @@ public final class VncTunnelClient {
     public synchronized void start() {
         if (running.get()) return;
         running.set(true);
-        Thread t = new Thread(new Runnable() {
-            @Override public void run() { connectorLoop(); }
-        }, "stimba-vnc-relay");
-        t.setDaemon(true);
-        connectorThread = t;
-        t.start();
-        LOG.info("VNC relay tunnel started");
+        spawnConnectorThread();           // v3.12.20: extracted so watchdog can re-spawn
+        spawnWatchdogThread();            // v3.12.20
+        LOG.info("VNC relay tunnel started (with watchdog)");
     }
 
     public synchronized void stop() {
@@ -171,7 +183,84 @@ public final class VncTunnelClient {
         closeAllSilent();
         Thread t = connectorThread;
         if (t != null) t.interrupt();
+        Thread w = watchdogThread;
+        if (w != null) w.interrupt();
         LOG.info("VNC relay tunnel stopped");
+    }
+
+    /** v3.12.20 — start (or restart) the connector worker thread. */
+    private void spawnConnectorThread() {
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() { connectorLoop(); }
+        }, "stimba-vnc-relay");
+        t.setDaemon(true);
+        connectorThread = t;
+        lastConnectorIterAt = System.currentTimeMillis(); // baseline for watchdog
+        t.start();
+    }
+
+    /**
+     * v3.12.20 — watchdog. Checks every 30s whether the connector thread
+     * is making progress (lastConnectorIterAt advancing) AND alive. Two
+     * recovery conditions:
+     *
+     *  1. Worker terminated while running==true. A Java network-stack
+     *     hiccup on 2026-05-01 21:58:46 UTC simultaneously killed the
+     *     URCap's WS to the relay AND its RTDE socket to local URControl.
+     *     Java felix proc stayed alive but the connector thread silently
+     *     exited and never retried. agents_active stayed at 0 for over an
+     *     hour with no log line. Watchdog respawns the worker.
+     *
+     *  2. Worker alive but stuck (lastConnectorIterAt older than 3 min).
+     *     Could be a half-open TCP read/write that the kernel hasn't
+     *     timed out on yet. Watchdog interrupts the thread; on the next
+     *     watchdog tick if still alive we don't double-interrupt. Once
+     *     terminated, condition 1 respawns it.
+     */
+    private void spawnWatchdogThread() {
+        Thread w = new Thread(new Runnable() {
+            @Override public void run() { watchdogLoop(); }
+        }, "stimba-vnc-relay-watchdog");
+        w.setDaemon(true);
+        watchdogThread = w;
+        w.start();
+    }
+
+    private void watchdogLoop() {
+        while (running.get()) {
+            try {
+                Thread.sleep(WATCHDOG_INTERVAL_MS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            if (!running.get()) break;
+
+            Thread t = connectorThread;
+            if (t == null) {
+                LOG.warning("watchdog: connectorThread null — spawning");
+                spawnConnectorThread();
+                continue;
+            }
+            if (!t.isAlive()) {
+                LOG.warning("watchdog: connector thread terminated unexpectedly — respawning");
+                lastError   = "watchdog respawn (connector thread had exited)";
+                lastErrorAt = System.currentTimeMillis();
+                spawnConnectorThread();
+                continue;
+            }
+            long stalenessMs = System.currentTimeMillis() - lastConnectorIterAt;
+            if (stalenessMs > STALE_CONNECTOR_MS) {
+                LOG.warning("watchdog: connector loop stale " + stalenessMs + "ms — interrupting");
+                lastError   = "watchdog interrupt (connector stale " + (stalenessMs/1000) + "s)";
+                lastErrorAt = System.currentTimeMillis();
+                closeAllSilent();   // force the pump's read/write to throw
+                t.interrupt();
+                // Don't respawn here — let next iteration detect !isAlive
+                // (or the connector will recover on its own when sockets close).
+            }
+        }
+        LOG.info("Relay watchdog exited");
     }
 
     /** True when the WS upgrade is up AND the local x11vnc TCP socket is attached. */
@@ -191,6 +280,7 @@ public final class VncTunnelClient {
     private void connectorLoop() {
         long backoff = MIN_BACKOFF_MS;
         while (running.get()) {
+            lastConnectorIterAt = System.currentTimeMillis(); // v3.12.20 — watchdog liveness
             try {
                 if (!enabledSupplier.getAsBoolean()) {
                     setStatus("Relay vypnutý v nastaveniach");
