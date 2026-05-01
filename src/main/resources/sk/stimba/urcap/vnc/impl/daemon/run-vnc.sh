@@ -430,9 +430,20 @@ log "using ${X11VNC_BIN} (${X11VNC_VERSION})"
 mkdir -p "$(dirname "${VNC_PASSWORD_FILE}")"
 if [ ! -s "${VNC_PASSWORD_FILE}" ] || [ "${VNC_PASSWORD_REFRESH:-false}" = "true" ]; then
     log "writing VNC password file (${VNC_PASSWORD_FILE})"
-    # G7 fix: pipe via stdin, not positional arg, to avoid TTY dependency on Polyscope
-    printf '%s' "${VNC_PASSWORD}" | "${X11VNC_BIN}" -storepasswd - "${VNC_PASSWORD_FILE}" >/dev/null 2>&1 \
-        || "${X11VNC_BIN}" -storepasswd "${VNC_PASSWORD}" "${VNC_PASSWORD_FILE}"
+    # v3.12.19 — stdin path on x11vnc 0.9.13 produces a BROKEN encoding that
+    # x11vnc itself then can't validate against client RFB DES challenges.
+    # Reproduced on Stimba 2 (PolyScope 5.25.1, Debian 8 jessie). Manually:
+    #
+    #   printf '%s' "test1234" | x11vnc -storepasswd - /tmp/p_stdin
+    #   x11vnc -storepasswd test1234 /tmp/p_arg
+    #   xxd /tmp/p_stdin   # 92c2bee34d4330c2  <-- broken
+    #   xxd /tmp/p_arg     # 7068506980 2a 5e92  <-- valid
+    #
+    # Direct RFB auth from a Python client (DES with bit-reversed key, per
+    # RFB spec) succeeds against `_arg` and FAILS against `_stdin`. The
+    # G7-era stdin pipe was the wrong fix — original positional-arg path
+    # works and was always correct, the TTY concern was misdiagnosed.
+    "${X11VNC_BIN}" -storepasswd "${VNC_PASSWORD}" "${VNC_PASSWORD_FILE}"
     chmod 600 "${VNC_PASSWORD_FILE}"
 fi
 
