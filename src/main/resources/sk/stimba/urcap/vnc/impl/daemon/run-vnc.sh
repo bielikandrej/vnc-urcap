@@ -504,17 +504,48 @@ if [ -z "${XAUTH_FILE}" ]; then
     fi
 fi
 
-if [ -n "${XAUTH_FILE}" ]; then
-    export XAUTHORITY="${XAUTH_FILE}"
-else
-    log "WARN: no Xauthority file located; will pass '-auth guess' + '-find' to x11vnc"
+# v3.12.18 — explicit HOME export. runsv invokes us with a near-empty env
+# (no HOME). The xauth tool internally calls getpwuid()/getenv("HOME") to
+# choose where to write the cookie file; with no HOME it prints
+#   "xauth: unable to generate an authority file name"
+# and exits non-zero. x11vnc then loses access to DISPLAY :0 and silently
+# exits, runsv restarts the daemon, repeat ad nauseam (Stimba 2 robot saw
+# 60 856 respawn cycles in ~10 hours per the diag bundle 2026-05-01).
+# Setting HOME up-front lets xauth + x11vnc agree on the cookie location.
+export HOME="${XORG_HOME:-/root}"
+
+# v3.12.18 — bootstrap a writable Xauthority when none was discovered.
+# On UR e-Series PolyScope 5.25.1 (kernel 4.9.65-rt57ur, Debian 8 jessie)
+# the X server :0 runs as root with no /root/.Xauthority on disk, only the
+# in-memory cookie. `-auth guess` falls back to `xauth generate` which
+# fails as above. We pre-touch the file so xauth has somewhere to write
+# AND we ask xauth to extract the running cookie via `xauth -f <file>
+# generate :0 . trusted` (best-effort — silent if X server doesn't
+# co-operate, but x11vnc's `-find`/`-auth guess` path will still work
+# with the writable file present).
+if [ -z "${XAUTH_FILE}" ]; then
+    XAUTH_FILE="${HOME}/.Xauthority"
+    if [ ! -e "${XAUTH_FILE}" ]; then
+        : > "${XAUTH_FILE}" 2>/dev/null || true
+        chmod 600 "${XAUTH_FILE}" 2>/dev/null || true
+    fi
+    # Try to populate the file with a valid cookie. Best-effort: many UR
+    # setups will have an X server that auto-trusts local root anyway, in
+    # which case the empty Xauthority + `-auth file` is enough to unblock
+    # x11vnc.
+    if command -v xauth >/dev/null 2>&1; then
+        xauth -f "${XAUTH_FILE}" generate "${DISPLAY}" . trusted >/dev/null 2>&1 \
+            || xauth -f "${XAUTH_FILE}" add "${DISPLAY}" . "$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | hexdump -e '16/1 "%02x"')" >/dev/null 2>&1 \
+            || true
+    fi
+    log "Xauthority bootstrapped at ${XAUTH_FILE} (HOME=${HOME})"
 fi
 
+export XAUTHORITY="${XAUTH_FILE}"
+
 # Now probe with the best auth we've got.
-PROBE_AUTH_ARG=""
-[ -n "${XAUTH_FILE}" ] && PROBE_AUTH_ARG="-auth ${XAUTH_FILE}"
-if ! DISPLAY="${DISPLAY}" xdpyinfo ${PROBE_AUTH_ARG} >/dev/null 2>&1; then
-    log "WARNING: xdpyinfo could not probe DISPLAY=${DISPLAY} (auth=${XAUTH_FILE:-guess})"
+if ! DISPLAY="${DISPLAY}" xdpyinfo -auth "${XAUTH_FILE}" >/dev/null 2>&1; then
+    log "WARNING: xdpyinfo could not probe DISPLAY=${DISPLAY} (auth=${XAUTH_FILE})"
     log "         continuing — x11vnc has its own -findauth path as a fallback"
 fi
 
@@ -524,21 +555,38 @@ fi
 if command -v iptables >/dev/null 2>&1; then
     log "installing iptables whitelist: ACCEPT ${IXROUTER_IP} -> tcp/${VNC_PORT}, DROP others"
 
-    # ACCEPT from IXrouter (idempotent via -C check)
-    if ! iptables -C INPUT -p tcp --dport "${VNC_PORT}" -s "${IXROUTER_IP}" -j ACCEPT 2>/dev/null; then
+    # v3.12.18 — `iptables -C` check is broken on UR e-Series PolyScope's
+    # busybox iptables 1.4.21 (Debian 8 jessie). Even after a rule is
+    # successfully inserted, the -C lookup returns non-zero ("No such
+    # rule" / "Bad rule"). Result: every run-vnc.sh restart appends a
+    # duplicate ACCEPT rule. The Stimba 2 diag bundle showed >100 000
+    # duplicate ACCEPT entries from the v3.12.13–17 respawn loop. We
+    # parse `iptables-save` instead — that returns canonical rule
+    # strings we can match exactly with grep -F.
+    iptables_rule_exists() {
+        # args: chain spec... → return 0 if a matching -A line is in iptables-save
+        local needle
+        needle="-A $*"
+        iptables-save 2>/dev/null | grep -qxF "${needle}"
+    }
+
+    # ACCEPT from IXrouter (idempotent — survives the 1.4.21 -C bug)
+    if ! iptables_rule_exists "INPUT -s ${IXROUTER_IP}/32 -p tcp -m tcp --dport ${VNC_PORT} -j ACCEPT"; then
         if ! iptables -I INPUT 1 -p tcp --dport "${VNC_PORT}" -s "${IXROUTER_IP}" -j ACCEPT; then
             log "ERROR: iptables INSERT ACCEPT failed (EUID=$(id -u)?)"
             exit 13
         fi
     fi
 
-    # Always accept loopback (local vncviewer diagnostics)
-    if ! iptables -C INPUT -p tcp --dport "${VNC_PORT}" -s 127.0.0.1 -j ACCEPT 2>/dev/null; then
+    # Always accept loopback (local vncviewer diagnostics + URCap relay tunnel
+    # connecting to 127.0.0.1:${VNC_PORT})
+    if ! iptables_rule_exists "INPUT -s 127.0.0.1/32 -p tcp -m tcp --dport ${VNC_PORT} -j ACCEPT"; then
         iptables -I INPUT 1 -p tcp --dport "${VNC_PORT}" -s 127.0.0.1 -j ACCEPT || true
     fi
 
-    # DROP everything else
-    if ! iptables -C INPUT -p tcp --dport "${VNC_PORT}" -j DROP 2>/dev/null; then
+    # DROP everything else (last resort; anything not matched by the
+    # ACCEPTs above gets dropped on this port).
+    if ! iptables_rule_exists "INPUT -p tcp -m tcp --dport ${VNC_PORT} -j DROP"; then
         if ! iptables -A INPUT -p tcp --dport "${VNC_PORT}" -j DROP; then
             log "WARNING: iptables APPEND DROP failed; port ${VNC_PORT} may be open to LAN"
         fi

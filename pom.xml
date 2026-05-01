@@ -6,7 +6,7 @@
 
     <groupId>sk.stimba.urcap</groupId>
     <artifactId>vnc-server</artifactId>
-    <version>3.12.17</version>
+    <version>3.12.18</version>
     <packaging>bundle</packaging>
 
     <name>STIMBA VNC Server URCap</name>
