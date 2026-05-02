@@ -215,6 +215,31 @@ public class VncInstallationNodeContribution implements InstallationNodeContribu
 
         // Fire up the daemon automatically if autostart is set
         applyDesiredDaemonStatus();
+
+        // v3.12.21 — start the relay tunnel + portal heartbeat at contribution
+        // load time, NOT just at openView(). The original v3.4.0 design assumed
+        // an operator would always navigate to the URCap installation tab to
+        // "wake" the relay; in practice the URCap is fully headless on most
+        // robots and no tablet user ever touches the URCap node, so the
+        // tunnel was never starting after Polyscope restarts. v3.12.20's
+        // watchdog covers a connector that died mid-flight, but it can't
+        // help if start() was never called in the first place. Calling
+        // startHeartbeatIfPaired() here means: if the URCap was paired with
+        // portal.stimba.sk in a prior session, the tunnel comes up the
+        // moment Polyscope finishes loading the installation file.
+        // openView() still calls it (idempotent — guarded by null checks
+        // inside), so a user opening the tab still works as before.
+        try {
+            startHeartbeatIfPaired();
+        } catch (Throwable t) {
+            // Bundle activation must NEVER fail because of relay startup —
+            // x11vnc and the rest of the URCap should still work even if
+            // we somehow can't reach portal/relay yet. Log and move on.
+            java.util.logging.Logger
+                    .getLogger(VncInstallationNodeContribution.class.getName())
+                    .warning("v3.12.21 auto-start heartbeat failed (non-fatal): "
+                            + t.getClass().getSimpleName() + " " + t.getMessage());
+        }
     }
 
     // --- InstallationNodeContribution lifecycle ---------------------------
