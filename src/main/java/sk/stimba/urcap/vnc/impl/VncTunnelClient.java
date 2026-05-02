@@ -373,7 +373,22 @@ public final class VncTunnelClient {
             raw = new Socket(host, port);
         }
         raw.setTcpNoDelay(true);
-        raw.setSoTimeout(0);
+        // v3.12.22 — was 0 (no timeout). Carrier NAT / cellular link drops
+        // would leave the socket read blocked for ~15-20s waiting for kernel
+        // TCP retransmit timeout, during which the user perceives a hard
+        // freeze followed by a slow drop. The relay sends a WS PING every
+        // 3 s (KEEPALIVE_PING_MS in relay/src/index.ts), so we ALWAYS get
+        // bytes through the socket within a few seconds under normal conditions.
+        // 15 s timeout = 5 missed pings = network is genuinely dead → throw
+        // SocketTimeoutException, exit runSession, reconnect via the
+        // exponential-backoff loop. End-to-end recovery target: <20 s.
+        raw.setSoTimeout(15_000);
+        // SO_KEEPALIVE on the kernel socket too — additional defense if
+        // the WS application layer somehow doesn't exercise the read path.
+        // Default Linux probes start at 7200 s idle which is useless, but
+        // having it on at least lets a kernel-aware NAT see the keepalive
+        // packets.
+        try { raw.setKeepAlive(true); } catch (Throwable ignored) {}
         this.wsSocket = raw;
 
         InputStream  in  = new BufferedInputStream(raw.getInputStream());
