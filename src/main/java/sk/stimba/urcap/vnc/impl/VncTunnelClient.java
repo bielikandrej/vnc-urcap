@@ -99,7 +99,24 @@ public final class VncTunnelClient {
      *  resolver issue that clears within seconds, not the multi-minute outage
      *  the generic exponential backoff was tuned for. */
     private static final long DNS_FAIL_BACKOFF_CAP_MS = 15_000L;
-    private static final long MAX_BACKOFF_MS = 60_000L;
+    /** v3.12.23 — was 60_000. After IXON tunnel switched from TCP/443 to
+     *  OpenVPN/UDP/1194 the agent flap pattern became 5s up / 56s down — a
+     *  60s cap meant most reconnect cycles were spending almost their entire
+     *  duration in backoff sleep, leaving the relay's view of the agent
+     *  permanently in the "down" state. 5s cap keeps the door open: even if
+     *  every reconnect fails fast, we are retrying within the same window the
+     *  relay needs to see fresh traffic. */
+    private static final long MAX_BACKOFF_MS = 5_000L;
+    /** v3.12.23 — proactive client-side keepalive. Browsers send PONGs only
+     *  in response to server PINGs; the relay sends a PING every 1s
+     *  (KEEPALIVE_PING_MS in relay/src/index.ts) but on the OpenVPN/UDP path
+     *  the relay→agent direction can lose those frames without notification.
+     *  The agent therefore also pings every PROACTIVE_PING_MS so there are
+     *  always small frames flowing in BOTH directions, exercising the carrier
+     *  NAT mapping plus the OpenVPN UDP path. Combined with setSoTimeout
+     *  below, dead links are detected within ~5s instead of waiting for
+     *  TCP retransmit timers (~15-20s). */
+    private static final long PROACTIVE_PING_MS = 1_000L;
     private static final int  PUMP_BUFFER    = 16_384;
     private static final int  WS_OP_CONT     = 0x0;
     private static final int  WS_OP_BINARY   = 0x2;
@@ -373,16 +390,13 @@ public final class VncTunnelClient {
             raw = new Socket(host, port);
         }
         raw.setTcpNoDelay(true);
-        // v3.12.22 — was 0 (no timeout). Carrier NAT / cellular link drops
-        // would leave the socket read blocked for ~15-20s waiting for kernel
-        // TCP retransmit timeout, during which the user perceives a hard
-        // freeze followed by a slow drop. The relay sends a WS PING every
-        // 3 s (KEEPALIVE_PING_MS in relay/src/index.ts), so we ALWAYS get
-        // bytes through the socket within a few seconds under normal conditions.
-        // 15 s timeout = 5 missed pings = network is genuinely dead → throw
-        // SocketTimeoutException, exit runSession, reconnect via the
-        // exponential-backoff loop. End-to-end recovery target: <20 s.
-        raw.setSoTimeout(15_000);
+        // v3.12.23 — was 15_000 (v3.12.22). After IXON OpenVPN/UDP tunnel
+        // switch the agent dies after ~5s and reconnects 56s later. Tightening
+        // the read timeout to 5 s + the relay's 1 s server-side PING +
+        // PROACTIVE_PING_MS=1 s client-side PING = 5 missed frames in either
+        // direction will bounce the connection within 5s. End-to-end recovery
+        // target now: <10 s instead of ~20 s.
+        raw.setSoTimeout(5_000);
         // SO_KEEPALIVE on the kernel socket too — additional defense if
         // the WS application layer somehow doesn't exercise the read path.
         // Default Linux probes start at 7200 s idle which is useless, but
@@ -488,6 +502,41 @@ public final class VncTunnelClient {
         wsToLocal.setDaemon(true);
         wsToLocal.start();
 
+        // v3.12.23 — proactive client-initiated keepalive PING.
+        //
+        // The OpenVPN/UDP transport that IXON switched to in 2026-04 silently
+        // drops frames bigger than ~1300 bytes (UDP fragmentation interacts
+        // badly with the WS-over-TCP-encapsulated-in-UDP path). The previous
+        // setup relied on the relay sending PINGs to keep the link warm, but
+        // those pings travel in the relay→agent direction — the same direction
+        // OpenVPN UDP loses. By having the agent ALSO ping every 1 s, we
+        // guarantee small frames flow agent→relay constantly, exercising the
+        // carrier NAT mapping in BOTH directions and giving setSoTimeout a
+        // reliable signal of the inbound path's liveness via PONG echos.
+        //
+        // Frame size is ~6 bytes (FIN + opcode 0x9 + masked 0-byte payload),
+        // so even at 1 Hz this is <1 KB/min — negligible vs the SIM data cap.
+        final Thread pingThread = new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    while (running.get() && !rawRef.isClosed()) {
+                        Thread.sleep(PROACTIVE_PING_MS);
+                        if (!running.get() || rawRef.isClosed()) break;
+                        synchronized (wsOutRef) {
+                            writeFrame(wsOutRef, WS_OP_PING, new byte[0], maskKey());
+                            wsOutRef.flush();
+                        }
+                    }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                } catch (IOException ignored) {
+                    // socket already closed; pump will exit too
+                }
+            }
+        }, "stimba-vnc-relay-clientping");
+        pingThread.setDaemon(true);
+        pingThread.start();
+
         // ---- Pump local -> WS (main thread) ----------------------------
         byte[] buf = new byte[PUMP_BUFFER];
         try {
@@ -508,10 +557,14 @@ public final class VncTunnelClient {
                     out.flush();
                 }
             } catch (IOException ignored) { /* best effort */ }
+            // v3.12.23 — stop the proactive ping before closing the socket so
+            // the ping thread doesn't try to write to a half-closed stream.
+            pingThread.interrupt();
             closeSilent(local);
             closeSilent(raw);
             try {
                 wsToLocal.join(2_000L);
+                pingThread.join(2_000L);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
             }
